@@ -4,5 +4,6 @@
 #add python files
 !.gitignore
 !*.py
+!*.sh
 !/.git
 !README.md
