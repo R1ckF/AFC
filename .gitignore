@@ -1,0 +1,8 @@
+#ignore everything
+*
+
+#add python files
+!.gitignore
+!*.py
+!/.git
+!README.md
