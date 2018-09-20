@@ -13,7 +13,7 @@ def parse_args():
         parser.add_argument('--resultsPath', default="results/")
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int)
-        parser.add_argument('--numSteps', default=100, type=int)
+        parser.add_argument('--numSteps', default=3, type=int)
         parser.add_argument('--cnn', default=4, type=int)
         parser.add_argument('--fc', default=4, type=int)
         args = parser.parse_args()
@@ -29,9 +29,9 @@ env = adjustFrame(env)
 env = stackFrames(env, args.stacks)
 
 ##create network
+sess = tf.Session()
 
-
-runner = agent(env, args.cnn, args.fc)
+runner = agent(env, sess, args.cnn, args.fc)
 
 
 ##reset enviroment
@@ -44,9 +44,10 @@ Rewards = []
 for _ in range(args.numSteps):
     env.render()
     action = runner.step(obs)
-    obs, reward, done, info = env.step(action)
-    if done: obs = env.reset()
-    Rewards.append(reward)
-print(obs)
-print(obs.dtype)
+    print(action)
+    # obs, reward, done, info = env.step(action)
+    # if done: obs = env.reset()
+    # Rewards.append(reward)
+print(action.dtype)
 env.env.env.env.close()
+sess.close()
