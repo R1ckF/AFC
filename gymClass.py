@@ -8,8 +8,7 @@ class adjustFrame(gym.ObservationWrapper):
 
     def __init__(self, env):
         """
-        Warp frames to 84x84 as done in the Nature paper and later work.
-        Also removes top rows as they do not contain info for the game
+        Warp frames to 84x84 as done in most atari papers.
 
         """
 
@@ -21,7 +20,6 @@ class adjustFrame(gym.ObservationWrapper):
 
     def observation(self, frame):
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-        frame = frame[25:,:]
         frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
         return frame[:, :,None]
 
@@ -33,7 +31,7 @@ class stackFrames(gym.Wrapper):
         """
         Stack k last frames.
         This is to let the NN able to extract information about velocity and acceleration.
-        Also normalizes observation for faster converges
+        Also normalizes observation ([0-1] instead of [0 255]) for faster converges
         """
 
         gym.Wrapper.__init__(self, env)
