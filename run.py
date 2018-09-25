@@ -14,12 +14,13 @@ def parse_args():
         parser.add_argument('--env', default="SpaceInvadersDeterministic-v4")
         parser.add_argument('--resultsPath', default="results/")
         parser.add_argument('--play', action='store_true')
-        parser.add_argument('--stacks', default=4, type=int)
+        parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
         parser.add_argument('--numSteps', default=10, type=int)
-        parser.add_argument('--CNNoption', default='small', type=str)
+        parser.add_argument('--CNNoption', default='small', type=str, help = 'Choose small or large')
         parser.add_argument('--activation', default=tf.nn.elu)
         parser.add_argument('--minibatch', default=4)
-        parser.add_argument('--gamma', default=0.9, help='discouted reward factor')
+        parser.add_argument('--gamma', default=0.9, help='discounted reward factor')
+        parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
         # parser.add_argument('--fc', default=4, type=int)
         args = parser.parse_args()
         return args
@@ -29,6 +30,19 @@ args=parse_args()
 network_args = {}
 for item in ['CNNoption','activation']:
     network_args[item]=args.__dict__[item]
+
+# rewards = np.ones(10)
+# values = (np.ones(10)-np.array([0.1, 0.1,0.1,0.1,-0.1,-0.1,-0.1,-0.1,-0.1,-0.1]))*10
+#
+# advDR,DR = advantageDR(rewards,values,0.5)
+# print(advDR)
+# print(DR)
+# advEST = advantageEST(rewards,values,0.5)
+# print(advEST)
+# print(advEST+values)
+# stolen ,dr = stolen(rewards,values,0.5)
+# print(stolen)
+# print(dr)
 
 #create environement
 env = gym.make(args.env)
@@ -69,10 +83,10 @@ for i in range(args.numSteps):
     Rewards.append(reward)
     if done:
         obs = env.reset()
-
+        actionsArr = np.transpose(np.vstack(np.arange(len(Actions),np.as_array(Actions))))
     if i % args.minibatch == 0:
         dReward = discountRewards(Rewards,Values,args.gamma)
-        
+
 
 
 ttime = time.time()-tStart

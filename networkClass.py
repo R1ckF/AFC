@@ -68,10 +68,21 @@ class network:
         else:
             raise ValueError('Invalid network option')
 
-        if tf.get_variable_scope().name=='actor' or tf.get_variable_scope().name=='actorOld':
+        if tf.get_variable_scope().name=='actor':
             self.action = tf.nn.softmax(self.fc(self.networkOutput, self.outputShape, name= 'Action', **network_args))
         elif tf.get_variable_scope().name=='critic':
             self.value = self.fc(self.networkOutput, 1, name='Value', **network_args)
+
+    if tf.get_variable_scope().name=='actor':
+        def updateNetwork(self,actionsProbOldPH, advantagePH):
+            ratio = tf.gather_nd(self.action, actionsPH) / actionsProbOldPH
+            Lcpi = ratio * advantagePH
+            clipped = tf.clip_by_value(ratio,(1-e),(1+e))*advantagePH
+            self.lossFunction = -tf.reduce_mean(tf.minimum(Lcpi,clipped))
+
+    elif tf.get_variable_scope().name=='critic':
+        def updateNetwork(self,disRewardsPH):
+            self.lossFunction = tf.reduce_mean(tf.square(self.critic.value-disRewardsPH))
 
 
 
@@ -89,16 +100,19 @@ class agent:
         self.shp = self.env.observation_space.shape
         self.X = tf.placeholder(tf.float32,shape=[None, self.shp[0],self.shp[1],self.shp[2]], name = "Observation")
         self.outputShape = self.env.action_space.n
-
+        self.actionsPH = tf.placeholder(tf.float32,shape=[None,2],name='Actions')
+        self.actionsProbOldPH = tf.placeholder(tf.float32,shape=[None,1],name='ActionProbOld')
+        self.advantagePH = tf.placeholder(tf.float32, shape=[None,1],name='Advantage')
+        self.disRewardsPH = tf.placeholder(tf.float32, shape = [None,1], name = 'Discounted Rewards')
 
         with tf.variable_scope('actor'):
             network_args['trainable'] = True
             self.actor = network(self.env, self.CNNoption, self.sess)
             self.actor.buildNetwork(self.X,**network_args)
-        with tf.variable_scope('actorOld'):
-            network_args['trainable'] = False
-            self.actorOld = network(self.env, self.CNNoption, self.sess)
-            self.actorOld.buildNetwork(self.X,**network_args)
+        # with tf.variable_scope('actorOld'):
+        #     network_args['trainable'] = False
+        #     self.actorOld = network(self.env, self.CNNoption, self.sess)
+        #     self.actorOld.buildNetwork(self.X,**network_args)
         with tf.variable_scope('critic'):
             network_args['trainable'] = True
             self.critic = network(self.env, self.CNNoption, self.sess)
@@ -114,18 +128,33 @@ class agent:
     def getValue(self, observation):
         self.sess.run(self.critic.value, feed_dict={self.X: observation})
 
-    def update(self,action, ActionSpaceProb,Values,DisRewards,e):
-        actions = tf.placeholder(tf.float32,shape=[None,1],name='Actions')
-        actionsProb = tf.placeholder(tf.float32,shape=[None,1],name='ActionProb')
-        advantage = tf.placeholder(tf.float32, shape=[None,1],name='Advantage')
-        ratio = actionsProb / self.actorOld.action[actions]
-        surrLoss = tf.clip_by_value(ratio*advantage,(1-e)*advantage,(1+e)*advantage)
-        
+    def updateNetwork(self,action, ActionSpaceProb,Values,DisRewards,e):
+
+
+        self.lossFunctionCritic = tf.reduce_mean(tf.square(self.critic.value-disRewardsPH))
+
+
+
+
 
 ## other definitions
-def discountRewards(rewards, values, gamma):
+def advantageDR(rewards, values, gamma):
+
+    ## using discounted rewards to get advantage
     disRewards = np.asarray(rewards,dtype=np.float32)
     disRewards[0] = values[-1]
     for index in range(1,len(rewards)):
         disRewards[index] = disRewards[index-1]*gamma + rewards[index]
-    return disRewards[::-1]
+    return disRewards[::-1] - values, disRewards[::-1]
+
+def advantageEST(rewards, values, gamma):
+
+    ## using advantage estimator from article
+    advantage = np.zeros_like(rewards)
+    print(advantage)
+    advantage[-1] = values[-1]*gamma+rewards[-1]-values[-1]
+    lastAdv = advantage[-1]
+    for index in reversed(range(len(rewards)-1)):
+        delta = rewards[index] + gamma * values[index+1] -values[index]
+        advantage[index] = lastAdv = delta + gamma * lastAdv
+    return advantage
