@@ -30,9 +30,9 @@ class network:
             name = name, **network_args)
 
         ## building cnnsmall
-    def cnnSmall(self, X, **network_args):
-        print(X.shape)
-        outputC1 = self.conv(X, 8, 8, 4, name = 'Conv1', **network_args)
+    def cnnSmall(self, observationPH, **network_args):
+        print(observationPH.shape)
+        outputC1 = self.conv(observationPH, 8, 8, 4, name = 'Conv1', **network_args)
         print(outputC1.shape)
         outputC2 = self.conv(outputC1, 16, 4, 2, name = 'Conv2', **network_args)
         print(outputC2.shape)
@@ -44,9 +44,9 @@ class network:
         return outputFC
 
         ## building cnnlarge
-    def cnnLarge(self, X, **network_args):
-        print(X.shape)
-        outputC1 = self.conv(X, 32, 8, 4, name = 'Conv1', **network_args)
+    def cnnLarge(self, observationPH, **network_args):
+        print(observationPH.shape)
+        outputC1 = self.conv(observationPH, 32, 8, 4, name = 'Conv1', **network_args)
         print(outputC1.shape)
         outputC2 = self.conv(outputC1, 64, 4, 2, name = 'Conv2', **network_args)
         print(outputC2.shape)
@@ -58,13 +58,13 @@ class network:
         print(outputFC.shape)
         return outputFC
 
-    def buildNetwork(self,X,**network_args):
+    def buildNetwork(self,observationPH,**network_args):
         if self.CNNoption == 'small':
             print('Small network selected')
-            self.networkOutput=self.cnnSmall(X,**network_args)
+            self.networkOutput=self.cnnSmall(observationPH,**network_args)
         elif self.CNNoption == 'large':
             print('Large network selected')
-            self.networkOutput=self.cnnLarge(X,**network_args)
+            self.networkOutput=self.cnnLarge(observationPH,**network_args)
         else:
             raise ValueError('Invalid network option')
 
@@ -73,17 +73,17 @@ class network:
         elif tf.get_variable_scope().name=='critic':
             self.value = self.fc(self.networkOutput, 1, name='Value', **network_args)
 
-    if tf.get_variable_scope().name=='actor':
-        def updateNetwork(self,actionsProbOldPH, advantagePH):
+
+    def updateNetwork(self,actionsPH, actionsProbOldPH, advantagePH, disRewardsPH, e, learningRate):
+        if tf.get_variable_scope().name=='actor':
             ratio = tf.gather_nd(self.action, actionsPH) / actionsProbOldPH
             Lcpi = ratio * advantagePH
             clipped = tf.clip_by_value(ratio,(1-e),(1+e))*advantagePH
             self.lossFunction = -tf.reduce_mean(tf.minimum(Lcpi,clipped))
-
-    elif tf.get_variable_scope().name=='critic':
-        def updateNetwork(self,disRewardsPH):
-            self.lossFunction = tf.reduce_mean(tf.square(self.critic.value-disRewardsPH))
-
+            self.train = tf.train.AdamOptimizer(learning_rate= learningRate).minimize(self.lossFunction)
+        elif tf.get_variable_scope().name=='critic':
+            self.lossFunction = tf.reduce_mean(tf.square(self.value-disRewardsPH))
+            self.train = tf.train.AdamOptimizer(learning_rate = learningRate).minimize(self.lossFunction)
 
 
 class agent:
@@ -92,50 +92,68 @@ class agent:
     Also provides training functionality for the networks
     """
 
-    def __init__(self, env, sess, CNNoption='small', **network_args):
+    def __init__(self, env, sess, CNNoption='small',epsilon = 0.2, epochs = 10, learningRate = 0.0005, nMiniBatch = 2, loadPath = None,
+                    **network_args):
         self.env = env
         self.sess = sess
         self.CNNoption = CNNoption
-        self.sess = sess
+        self.epsilon = epsilon
+        self.epoch = epochs
+        self.learningRate = learningRate
+        self.nMiniBatch = nMiniBatch
+        self.loadPath  = loadPath
         self.shp = self.env.observation_space.shape
-        self.X = tf.placeholder(tf.float32,shape=[None, self.shp[0],self.shp[1],self.shp[2]], name = "Observation")
+        self.observationPH = tf.placeholder(tf.float32,shape=[None, self.shp[0],self.shp[1],self.shp[2]], name = "Observation")
         self.outputShape = self.env.action_space.n
-        self.actionsPH = tf.placeholder(tf.float32,shape=[None,2],name='Actions')
+        self.actionsPH = tf.placeholder(tf.int32,shape=[None,2],name='Actions')
         self.actionsProbOldPH = tf.placeholder(tf.float32,shape=[None,1],name='ActionProbOld')
         self.advantagePH = tf.placeholder(tf.float32, shape=[None,1],name='Advantage')
-        self.disRewardsPH = tf.placeholder(tf.float32, shape = [None,1], name = 'Discounted Rewards')
+        self.disRewardsPH = tf.placeholder(tf.float32, shape = [None,1], name = 'DiscountedRewards')
 
         with tf.variable_scope('actor'):
-            network_args['trainable'] = True
             self.actor = network(self.env, self.CNNoption, self.sess)
-            self.actor.buildNetwork(self.X,**network_args)
-        # with tf.variable_scope('actorOld'):
-        #     network_args['trainable'] = False
-        #     self.actorOld = network(self.env, self.CNNoption, self.sess)
-        #     self.actorOld.buildNetwork(self.X,**network_args)
+            self.actor.buildNetwork(self.observationPH,**network_args)
+            self.actor.updateNetwork(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon, self.learningRate)
+
         with tf.variable_scope('critic'):
-            network_args['trainable'] = True
             self.critic = network(self.env, self.CNNoption, self.sess)
-            self.critic.buildNetwork(self.X,**network_args)
-        self.sess.run(tf.global_variables_initializer())
+            self.critic.buildNetwork(self.observationPH,**network_args)
+            self.critic.updateNetwork(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon, self.learningRate)
 
+        self.saver = tf.train.Saver()
+        print('Agent created with following properties: ', self.__dict__, network_args)
+        if loadPath:
+            self.saver.restore(self.sess, self.loadPath)
+            print("Model loaded from ", self.loadPath)
+        else:
+            self.sess.run(tf.global_variables_initializer())
     def step(self, observation):
-        actionSpace, value = self.sess.run([self.actor.action, self.critic.value], feed_dict= {self.X : observation})
-        print(actionSpace)
-        action = np.random.choice(self.outputShape,1,p=actionSpace.squeeze())
-        return action, value, actionSpace.squeeze()[action]
+        actionSpace, value = self.sess.run([self.actor.action, self.critic.value], feed_dict= {self.observationPH : observation})
+        action = np.random.choice(self.outputShape,p=actionSpace.squeeze())  ## selecting action with probabilities according to softmax layer
+        return action, value.squeeze(), actionSpace.squeeze()[action]
 
-    def getValue(self, observation):
-        self.sess.run(self.critic.value, feed_dict={self.X: observation})
+    def trainNetwork(self, observations, actions, actionProbOld, advantage, disRewards):
+        l = observations.shape[0]
+        step = int(l/self.nMiniBatch)
+        indices = range(0,l,step)
+        randomIndex = np.arange(l)
+        for _ in range(self.epoch):
+            np.random.shuffle(randomIndex)
+            for start in indices:
+                end = start+step
+                ind = randomIndex[start:end].astype(np.int32)
+                observationsB = observations[ind]
+                actionsB = actions[ind]
+                actionProbOldB = actionProbOld[ind]
+                advantageB = advantage[ind]
+                disRewardsB = disRewards[ind]
+                actionsB = np.transpose(np.vstack((np.arange(len(actionsB),dtype=np.int32),np.asarray(actionsB,dtype=np.int32))))
+                feedDict = {self.observationPH: observationsB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB}
+                self.sess.run([self.actor.train, self.critic.train],feed_dict = feedDict)
 
-    def updateNetwork(self,action, ActionSpaceProb,Values,DisRewards,e):
-
-
-        self.lossFunctionCritic = tf.reduce_mean(tf.square(self.critic.value-disRewardsPH))
-
-
-
-
+    def saveNetwork(self,name):
+        savePath = self.saver.save(self.sess,name+".ckpt")
+        print("Model saved in path: %s" % savePath)
 
 ## other definitions
 def advantageDR(rewards, values, gamma):
@@ -151,10 +169,9 @@ def advantageEST(rewards, values, gamma):
 
     ## using advantage estimator from article
     advantage = np.zeros_like(rewards)
-    print(advantage)
     advantage[-1] = values[-1]*gamma+rewards[-1]-values[-1]
     lastAdv = advantage[-1]
     for index in reversed(range(len(rewards)-1)):
         delta = rewards[index] + gamma * values[index+1] -values[index]
         advantage[index] = lastAdv = delta + gamma * lastAdv
-    return advantage
+    return advantage.reshape((-1,1)), (advantage+values).reshape((-1,1))
