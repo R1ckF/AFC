@@ -185,7 +185,7 @@ class agent:
                 self.sess.run(self.train,feed_dict = feedDict)
 
     def saveNetwork(self,name):
-        savePath = self.saver.save(self.sess,name+".ckpt")
+        savePath = self.saver.save(self.sess,name)
         print("Model saved in path: %s" % savePath)
 
 ## other definitions
@@ -198,7 +198,7 @@ def advantageDR(rewards, values, gamma):
         disRewards[index] = disRewards[index-1]*gamma + rewards[index]
     return disRewards[::-1] - values, disRewards[::-1]
 
-def advantageEST(rewards, values, gamma):
+def advantageEST(rewards, values, gamma, lamda):
 
     ## using advantage estimator from article
     advantage = np.zeros_like(rewards)
@@ -206,5 +206,5 @@ def advantageEST(rewards, values, gamma):
     lastAdv = advantage[-1]
     for index in reversed(range(len(rewards)-1)):
         delta = rewards[index] + gamma * values[index+1] -values[index]
-        advantage[index] = lastAdv = delta + gamma * lastAdv
+        advantage[index] = lastAdv = delta + gamma * lamda * lastAdv
     return advantage.reshape((-1,1)), (advantage+values).reshape((-1,1))
