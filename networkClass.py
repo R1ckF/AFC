@@ -83,7 +83,7 @@ class network:
             Lcpi = ratio * advantagePH
             clipped = tf.clip_by_value(ratio,(1-e),(1+e))*advantagePH
             self.lCLIP = tf.reduce_mean(tf.minimum(Lcpi,clipped))
-            self.entropy = (tf.reduce_sum(-self.action*tf.log(self.action),axis=1))
+            self.entropy = tf.reduce_mean((tf.reduce_sum(-self.action*tf.log(self.action),axis=1)))
             return self.lCLIP, self.entropy
         elif tf.get_variable_scope().name=='critic':
             self.lVF = tf.reduce_mean(tf.square(self.value-disRewardsPH))
