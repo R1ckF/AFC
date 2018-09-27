@@ -128,6 +128,8 @@ class agent:
                 self.critic.buildNetwork(self.observationPH,**network_args)
                 self.critic.createStep(**network_args)
                 self.lVF = self.critic.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
+            self.action = self.actor.action
+            self.value = self.critic.value
 
         elif cnnStyle == 'shared':
             with tf.variable_scope('sharedCNN'):
@@ -139,12 +141,15 @@ class agent:
             with tf.variable_scope('critic'):
                 self.shared.createStep(**network_args)
                 self.lVF = self.shared.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
+            self.action = self.shared.action
+            self.value = self.shared.value
+
         else:
             raise ValueError('cnnStyle not recognized')
 
         with tf.variable_scope('trainer'):
             self.lossFunction = -(self.lCLIP - c1 * self.lVF + c2 * self.entropy)
-            self.train = tf.train.AdamOptimizer(learning_rate= self.learningRate).minimize(self.lossFunction)
+            self.train = tf.train.AdamOptimizer(learning_rate= learningRate).minimize(self.lossFunction)
 
         self.saver = tf.train.Saver()
         print('Agent created with following properties: ', self.__dict__, network_args)
@@ -156,7 +161,7 @@ class agent:
             self.sess.run(tf.global_variables_initializer())
 
     def step(self, observation):
-        actionSpace, value = self.sess.run([self.actor.action, self.critic.value], feed_dict= {self.observationPH : observation})
+        actionSpace, value = self.sess.run([self.action, self.value], feed_dict= {self.observationPH : observation})
         action = np.random.choice(self.outputShape,p=actionSpace.squeeze())  ## selecting action with probabilities according to softmax layer
         return action, value.squeeze(), actionSpace.squeeze()[action]
 

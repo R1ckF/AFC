@@ -29,6 +29,7 @@ def parse_args():
         parser.add_argument('--nMiniBatch', default = 2, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
         parser.add_argument('--saveInterval', default = 5000, help = 'save current network to disk')
+        parser.add_argument('--cnnStyle', default = 'copy', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
         # parser.add_argument('--fc', default=4, type=int)
         args = parser.parse_args()
         return args
@@ -36,7 +37,7 @@ def parse_args():
 #parse arguments and create dict for network options
 args=parse_args()
 network_args = {}
-for item in ['CNNoption','activation','epsilon', 'learningRate', 'epochs', 'nMiniBatch','loadPath']:
+for item in ['CNNoption','activation','epsilon', 'learningRate', 'epochs', 'nMiniBatch','loadPath','cnnStyle']:
     network_args[item]=args.__dict__[item]
 render = args.liverender
 assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
