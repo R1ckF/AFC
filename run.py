@@ -17,16 +17,16 @@ def parse_args():
         parser.add_argument('--resultsPath', default="results/")
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
-        parser.add_argument('--numSteps', default=10000000, type=int)
+        parser.add_argument('--numSteps', default=10, type=int)
         parser.add_argument('--CNNoption', default='small', type=str, help = 'Choose small or large')
         parser.add_argument('--activation', default=tf.nn.relu)
-        parser.add_argument('--nsteps', default=128, help='number of environment steps between training')
+        parser.add_argument('--nsteps', default=4, help='number of environment steps between training')
         parser.add_argument('--gamma', default=0.95, help='discounted reward factor')
         parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
         parser.add_argument('--epochs', default = 4, help= 'Number of epochs for training networks')
         parser.add_argument('--learningRate', default = 0.0005, help= 'Starting value for the learning rate for training networks.')
         parser.add_argument('--liverender', default = False, action='store_true')
-        parser.add_argument('--nMiniBatch', default = 4, help = 'number of minibatches per trainingepoch')
+        parser.add_argument('--nMiniBatch', default = 2, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
         parser.add_argument('--saveInterval', default = 5000, help = 'save current network to disk')
         # parser.add_argument('--fc', default=4, type=int)
@@ -72,6 +72,7 @@ obs = env.reset()
 
 ##create list for saving and open file for resultswriting
 Rewards = []
+EpisodeRewards = []
 Actions = []
 Observations = []
 Values = []
@@ -96,11 +97,13 @@ for timestep in range(args.numSteps):
     Values.append(value)
     obs, reward, done, info = env.step(action)
     Rewards.append(reward)
+    EpisodeRewards.append(reward)
     if done:
         tnow = time.time()
         obs = env.reset()
-        resultsFile.write("{}, {}, {} \n".format(sum(Rewards), timestep, tnow-tprev))
+        resultsFile.write("{}, {}, {} \n".format(sum(EpisodeRewards), timestep, tnow-tprev))
         tprev = tnow
+        EpisodeRewards = []
 
     if (timestep+1) % args.nsteps == 0:
         print("Training Model")
