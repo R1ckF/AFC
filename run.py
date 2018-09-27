@@ -122,7 +122,7 @@ for timestep in range(args.numSteps):
         Advantage, DiscRewards = advantageEST(Rewards,Values,args.gamma,args.lamda)
         Agent.trainNetwork(Observations, Actions, ActionProb, Advantage, DiscRewards)
         Rewards, Actions, Observations, Values, ActionProb = [],[],[],[],[]
-        print(time.time()-traintime)
+        # print(time.time()-traintime)
 
     if (timestep+1) % args.saveInterval == 0:
         savePath = os.path.join(args.resultsPath,"checkpoints"+str(timestep)+".ckpt")
