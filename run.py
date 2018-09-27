@@ -29,7 +29,7 @@ def parse_args():
         parser.add_argument('--liverender', default = False, action='store_true')
         parser.add_argument('--nMiniBatch', default = 4, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
-        parser.add_argument('--saveInterval', default = 10000, help = 'save current network to disk')
+        parser.add_argument('--saveInterval', default = 10000, type=int, help = 'save current network to disk')
         parser.add_argument('--cnnStyle', default = 'copy', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
         parser.add_argument('--lamda', default = 0.95, help = 'GAE from PPO article')
         parser.add_argument('--c1', default = 1, help = 'VF coefficient')
@@ -42,6 +42,7 @@ def parse_args():
 args=parse_args()
 if not args.resultsPath:
     args.resultsPath = os.path.join("results",args.env+"_"+args.cnnStyle+"_"+args.CNNoption)
+print(args)
 network_args = {}
 for item in ['CNNoption','activation','epsilon', 'learningRate', 'epochs', 'nMiniBatch','loadPath','cnnStyle', 'c1','c2']:
     network_args[item]=args.__dict__[item]
@@ -122,8 +123,8 @@ for timestep in range(args.numSteps):
         Rewards, Actions, Observations, Values, ActionProb = [],[],[],[],[]
         print(time.time()-traintime)
 
-    if timestep % args.saveInterval == 0:
-        savePath = os.path.joint(args.resultsPath,"checkpoints"+str(timestep)+".ckpt")
+    if (timestep+1) % args.saveInterval == 0:
+        savePath = os.path.join(args.resultsPath,"checkpoints"+str(timestep)+".ckpt")
         esttime = time.strftime("%H:%M:%S", time.gmtime((time.time()-tStart)/timestep*(args.numSteps-timestep)))
         print("Saving model to ",savePath )
         print("Latest reward: ", latestReward)
@@ -132,7 +133,7 @@ for timestep in range(args.numSteps):
 
 ttime = time.time()-tStart
 print("fps: ", args.numSteps/(ttime))
-Agent.saveNetwork(os.path.join(args.resultsPath,"finalModel","final.ckpt")
+Agent.saveNetwork(os.path.join(args.resultsPath,"finalModel","final.ckpt"))
 resultsFile.close()
 env.env.env.env.close()
 writer.close()
