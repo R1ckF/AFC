@@ -29,7 +29,7 @@ def parse_args():
         parser.add_argument('--liverender', default = False, action='store_true')
         parser.add_argument('--nMiniBatch', default = 4, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
-        parser.add_argument('--saveInterval', default = 10000, type=int, help = 'save current network to disk')
+        parser.add_argument('--saveInterval', default = 100000, type=int, help = 'save current network to disk')
         parser.add_argument('--cnnStyle', default = 'copy', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
         parser.add_argument('--lamda', default = 0.95, help = 'GAE from PPO article')
         parser.add_argument('--c1', default = 1, help = 'VF coefficient')
@@ -130,6 +130,7 @@ for timestep in range(args.numSteps):
         print("Saving model to ",savePath )
         print("Latest reward: ", latestReward)
         print("Estimated time remaining: ", esttime)
+        print("Update {} of {}".format((timestep+1)/args.saveInterval, args.numSteps/args.saveInterval))
         Agent.saveNetwork(savePath)
 
 ttime = time.time()-tStart
