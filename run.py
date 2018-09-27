@@ -63,7 +63,7 @@ assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
 
 #create environement
 env = gym.make(args.env)
-env = gym.wrappers.Monitor(env, args.resultsPath, force=True)
+# env = gym.wrappers.Monitor(env, args.resultsPath, force=True)
 env = adjustFrame(env)
 env = stackFrames(env, args.stacks)
 
