@@ -91,6 +91,7 @@ resultsFile.write('r,timestep,elapsedtime \n')
 
 ##main loop
 tStart = tprev = time.time()
+latestReward = 0
 for timestep in range(args.numSteps):
     if render:
         env.render()
@@ -106,7 +107,7 @@ for timestep in range(args.numSteps):
     obs, reward, done, info = env.step(action)
     Rewards.append(reward)
     EpisodeRewards.append(reward)
-    latestReward = 0
+
     if done:
         tnow = time.time()
         obs = env.reset()
