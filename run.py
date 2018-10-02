@@ -135,7 +135,9 @@ for timestep in range(args.numSteps):
         print("Saving model to ",savePath )
 
     if (timestep+1) % args.logInterval == 0:
-        esttime = time.strftime("%H:%M:%S", time.gmtime((time.time()-tStart)/timestep*(args.numSteps-timestep)))
+        # print(time.time(), tStart, timestep, args.numSteps)
+        esttime = (time.time()-tStart)/float(timestep)*(args.numSteps-timestep)
+        esttime = time.strftime("%H:%M:%S", (time.gmtime(esttime)))
         print("Latest reward: ", latestReward)
         print("Estimated time remaining: ", esttime)
         print("Update {} of {}".format((timestep+1)/args.logInterval, args.numSteps/args.logInterval))
