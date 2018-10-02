@@ -21,13 +21,13 @@ def parse_args():
         parser.add_argument('--numSteps', default=10000000, type=int)
         parser.add_argument('--CNNoption', default='small', type=str, help = 'Choose small or large')
         parser.add_argument('--activation', default=tf.nn.relu)
-        parser.add_argument('--nsteps', default=128, help='number of environment steps between training')
+        parser.add_argument('--nsteps', default=128, type=int, help='number of environment steps between training')
         parser.add_argument('--gamma', default=0.99, help='discounted reward factor')
         parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
-        parser.add_argument('--epochs', default = 3, help= 'Number of epochs for training networks')
+        parser.add_argument('--epochs', default = 3, type=int, help= 'Number of epochs for training networks')
         parser.add_argument('--learningRate', default = 2.5e-4, help= 'Starting value for the learning rate for training networks.')
         parser.add_argument('--liverender', default = False, action='store_true')
-        parser.add_argument('--nMiniBatch', default = 4, help = 'number of minibatches per trainingepoch')
+        parser.add_argument('--nMiniBatch', default = 4, type=int, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
         parser.add_argument('--saveInterval', default = 100000, type=int, help = 'save current network to disk')
         parser.add_argument('--cnnStyle', default = 'copy', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
@@ -118,7 +118,7 @@ for timestep in range(args.numSteps):
 
     if (timestep+1) % args.nsteps == 0:
         traintime = time.time()
-        Rewards, Observations, Values, Actions, ActionProb= np.asarray(Rewards,dtype=np.float32),  np.asarray(Observations,dtype=np.float32).squeeze(), np.asarray(Values,dtype=np.float32), np.asarray(Actions,dtype=np.int32), np.asarray(ActionProb,dtype=np.float32).reshape((-1,1))
+        Rewards, Observations, Values, Actions, ActionProb= np.asarray(Rewards,dtype=np.float32).reshape((-1,1)),  np.asarray(Observations,dtype=np.float32).squeeze(), np.asarray(Values,dtype=np.float32).reshape((-1,1)), np.asarray(Actions,dtype=np.int32).reshape((-1,1)), np.asarray(ActionProb,dtype=np.float32).reshape((-1,1))
         Advantage, DiscRewards = advantageEST(Rewards,Values,args.gamma,args.lamda)
         Agent.trainNetwork(Observations, Actions, ActionProb, Advantage, DiscRewards)
         Rewards, Actions, Observations, Values, ActionProb = [],[],[],[],[]

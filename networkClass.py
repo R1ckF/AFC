@@ -79,14 +79,17 @@ class network:
 
     def lossFunction(self,actionsPH, actionsProbOldPH, advantagePH, disRewardsPH, e):
         if tf.get_variable_scope().name=='actor':
-            ratio = tf.gather_nd(self.action, actionsPH) / actionsProbOldPH
-            Lcpi = ratio * advantagePH
-            clipped = tf.clip_by_value(ratio,(1-e),(1+e))*advantagePH
-            self.lCLIP = tf.reduce_mean(tf.minimum(Lcpi,clipped))
-            self.entropy = tf.reduce_mean((tf.reduce_sum(-self.action*tf.log(self.action),axis=1)))
-            return self.lCLIP, self.entropy
+            self.actionProb = tf.expand_dims(tf.gather_nd(self.action, actionsPH),-1)
+            self.ratio = self.actionProb / actionsProbOldPH
+            self.Lcpi = self.ratio * advantagePH
+            self.clipped = tf.clip_by_value(self.ratio,(1-e),(1+e))*advantagePH
+            self.lCLIP = tf.reduce_mean(tf.minimum(self.Lcpi,self.clipped))
+            self.entropy = tf.reduce_sum(-self.action*tf.log(self.action),axis=1)
+            self.meanEntropy = tf.reduce_mean(self.entropy)
+            return self.lCLIP, self.meanEntropy
         elif tf.get_variable_scope().name=='critic':
-            self.lVF = tf.reduce_mean(tf.square(self.value-disRewardsPH))
+            self.lVF = tf.square(self.value-disRewardsPH)
+            self.meanlVF = tf.reduce_mean(self.lVF)
             return self.lVF
         else:
             raise ValueError('no scope detected')
@@ -99,7 +102,7 @@ class agent:
     Also provides training functionality for the networks
     """
 
-    def __init__(self, env, sess, CNNoption='small',epsilon = 0.2, epochs = 10, learningRate = 0.0005, nMiniBatch = 2, loadPath = None,
+    def __init__(self, env, sess, CNNoption='small',epsilon = 0.2, epochs = 3, learningRate = 0.0005, nMiniBatch = 2, loadPath = None,
                     cnnStyle = 'copy', c1=1, c2 = 0.01, **network_args):
         self.env = env
         self.sess = sess
@@ -149,6 +152,8 @@ class agent:
 
         with tf.variable_scope('trainer'):
             self.lossFunction = -(self.lCLIP - c1 * self.lVF + c2 * self.entropy)
+            #self.printList = [ self.lCLIP, tf.shape(self.shared.entropy),tf.shape(self.shared.value),tf.shape(self.shared.lVF)]
+            #self.lossPrint = tf.Print(self.lossFunction,self.printList)
             self.train = tf.train.AdamOptimizer(learning_rate= learningRate).minimize(self.lossFunction)
 
         self.saver = tf.train.Saver()
@@ -180,7 +185,7 @@ class agent:
                 actionProbOldB = actionProbOld[ind]
                 advantageB = advantage[ind]
                 disRewardsB = disRewards[ind]
-                actionsB = np.transpose(np.vstack((np.arange(len(actionsB),dtype=np.int32),np.asarray(actionsB,dtype=np.int32))))
+                actionsB = np.hstack((np.arange(len(actionsB),dtype=np.int32).reshape((-1,1)),np.asarray(actionsB,dtype=np.int32)))
                 feedDict = {self.observationPH: observationsB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB}
                 self.sess.run(self.train,feed_dict = feedDict)
 
