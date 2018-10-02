@@ -9,34 +9,42 @@ from networkClass import *
 import time
 import timeit
 import pickle
+import os
 
 ## parsing function for easy running
 def parse_args():
         parser = argparse.ArgumentParser(description='Plot results of Simulations')
         parser.add_argument('--env', default="SpaceInvadersDeterministic-v4")
-        parser.add_argument('--resultsPath', default="results/")
+        parser.add_argument('--resultsPath', default=None)
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
         parser.add_argument('--numSteps', default=10000000, type=int)
         parser.add_argument('--CNNoption', default='small', type=str, help = 'Choose small or large')
         parser.add_argument('--activation', default=tf.nn.relu)
-        parser.add_argument('--nsteps', default=128, help='number of environment steps between training')
-        parser.add_argument('--gamma', default=0.95, help='discounted reward factor')
+        parser.add_argument('--nsteps', default=128, type=int, help='number of environment steps between training')
+        parser.add_argument('--gamma', default=0.99, help='discounted reward factor')
         parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
-        parser.add_argument('--epochs', default = 4, help= 'Number of epochs for training networks')
-        parser.add_argument('--learningRate', default = 0.0005, help= 'Starting value for the learning rate for training networks.')
+        parser.add_argument('--epochs', default = 3, type=int, help= 'Number of epochs for training networks')
+        parser.add_argument('--learningRate', default = 2.5e-4, help= 'Starting value for the learning rate for training networks.')
         parser.add_argument('--liverender', default = False, action='store_true')
-        parser.add_argument('--nMiniBatch', default = 4, help = 'number of minibatches per trainingepoch')
+        parser.add_argument('--nMiniBatch', default = 4, type=int, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
-        parser.add_argument('--saveInterval', default = 5000, help = 'save current network to disk')
+        parser.add_argument('--saveInterval', default = 100000, type=int, help = 'save current network to disk')
+        parser.add_argument('--cnnStyle', default = 'copy', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
+        parser.add_argument('--lamda', default = 0.95, help = 'GAE from PPO article')
+        parser.add_argument('--c1', default = 1, help = 'VF coefficient')
+        parser.add_argument('--c2', default = 0.01, help = 'entropy coefficient')
         # parser.add_argument('--fc', default=4, type=int)
         args = parser.parse_args()
         return args
 
 #parse arguments and create dict for network options
 args=parse_args()
+if not args.resultsPath:
+    args.resultsPath = os.path.join("results",args.env+"_"+args.cnnStyle+"_"+args.CNNoption)
+print(args)
 network_args = {}
-for item in ['CNNoption','activation','epsilon', 'learningRate', 'epochs', 'nMiniBatch','loadPath']:
+for item in ['CNNoption','activation','epsilon', 'learningRate', 'epochs', 'nMiniBatch','loadPath','cnnStyle', 'c1','c2']:
     network_args[item]=args.__dict__[item]
 render = args.liverender
 assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
@@ -55,10 +63,10 @@ assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
 
 #create environement
 env = gym.make(args.env)
-env = gym.wrappers.Monitor(env, args.resultsPath, force=True)
+# env = gym.wrappers.Monitor(env, args.resultsPath, force=True)
 env = adjustFrame(env)
 env = stackFrames(env, args.stacks)
-print(env.unwrapped.get_action_meanings())
+
 
 ##create network
 tf.reset_default_graph()
@@ -66,22 +74,24 @@ sess = tf.Session()
 Agent = agent(env, sess, **network_args)
 
 
-writer = tf.summary.FileWriter(args.resultsPath+"tensorboard", sess.graph)
+writer = tf.summary.FileWriter(os.path.join(args.resultsPath,"tensorboard"), sess.graph)
 ##reset enviroment
 obs = env.reset()
 
 ##create list for saving and open file for resultswriting
 Rewards = []
+EpisodeRewards = []
 Actions = []
 Observations = []
 Values = []
 ActionProb = []
-resultsFile = open(args.resultsPath+str(time.time())+"results.csv",'a')
+resultsFile = open(os.path.join(args.resultsPath,str(time.time())+".results.csv"),'a')
 resultsFile.write('r,timestep,elapsedtime \n')
 
 
 ##main loop
 tStart = tprev = time.time()
+latestReward = 0
 for timestep in range(args.numSteps):
     if render:
         env.render()
@@ -96,29 +106,36 @@ for timestep in range(args.numSteps):
     Values.append(value)
     obs, reward, done, info = env.step(action)
     Rewards.append(reward)
+    EpisodeRewards.append(reward)
+
     if done:
         tnow = time.time()
         obs = env.reset()
-        resultsFile.write("{}, {}, {} \n".format(sum(Rewards), timestep, tnow-tprev))
+        latestReward = sum(EpisodeRewards)
+        resultsFile.write("{}, {}, {} \n".format(latestReward, timestep, tnow-tprev))
         tprev = tnow
+        EpisodeRewards = []
 
     if (timestep+1) % args.nsteps == 0:
-        print("Training Model")
         traintime = time.time()
-        Rewards, Observations, Values, Actions, ActionProb= np.asarray(Rewards,dtype=np.float32),  np.asarray(Observations,dtype=np.float32).squeeze(), np.asarray(Values,dtype=np.float32), np.asarray(Actions,dtype=np.int32), np.asarray(ActionProb,dtype=np.float32).reshape((-1,1))
-        Advantage, DiscRewards = advantageEST(Rewards,Values,args.gamma)
+        Rewards, Observations, Values, Actions, ActionProb= np.asarray(Rewards,dtype=np.float32).reshape((-1,1)),  np.asarray(Observations,dtype=np.float32).squeeze(), np.asarray(Values,dtype=np.float32).reshape((-1,1)), np.asarray(Actions,dtype=np.int32).reshape((-1,1)), np.asarray(ActionProb,dtype=np.float32).reshape((-1,1))
+        Advantage, DiscRewards = advantageEST(Rewards,Values,args.gamma,args.lamda)
         Agent.trainNetwork(Observations, Actions, ActionProb, Advantage, DiscRewards)
         Rewards, Actions, Observations, Values, ActionProb = [],[],[],[],[]
-        print(time.time()-traintime)
+        # print(time.time()-traintime)
 
-    if timestep % args.saveInterval == 0:
-        savePath = args.resultsPath+"checkpoints/"+str(timestep)
+    if (timestep+1) % args.saveInterval == 0:
+        savePath = os.path.join(args.resultsPath,"checkpoints"+str(timestep)+".ckpt")
+        esttime = time.strftime("%H:%M:%S", time.gmtime((time.time()-tStart)/timestep*(args.numSteps-timestep)))
         print("Saving model to ",savePath )
+        print("Latest reward: ", latestReward)
+        print("Estimated time remaining: ", esttime)
+        print("Update {} of {}".format((timestep+1)/args.saveInterval, args.numSteps/args.saveInterval))
         Agent.saveNetwork(savePath)
 
 ttime = time.time()-tStart
 print("fps: ", args.numSteps/(ttime))
-Agent.saveNetwork(args.resultsPath+"finalModel/final")
+Agent.saveNetwork(os.path.join(args.resultsPath,"finalModel","final.ckpt"))
 resultsFile.close()
 env.env.env.env.close()
 writer.close()

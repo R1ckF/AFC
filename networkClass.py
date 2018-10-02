@@ -68,22 +68,32 @@ class network:
         else:
             raise ValueError('Invalid network option')
 
+    def createStep(self, **network_args):
         if tf.get_variable_scope().name=='actor':
             self.action = tf.nn.softmax(self.fc(self.networkOutput, self.outputShape, name= 'Action', **network_args))
         elif tf.get_variable_scope().name=='critic':
             self.value = self.fc(self.networkOutput, 1, name='Value', **network_args)
+        else:
+            raise ValueError('no scope detected')
 
 
-    def updateNetwork(self,actionsPH, actionsProbOldPH, advantagePH, disRewardsPH, e, learningRate):
+    def lossFunction(self,actionsPH, actionsProbOldPH, advantagePH, disRewardsPH, e):
         if tf.get_variable_scope().name=='actor':
-            ratio = tf.gather_nd(self.action, actionsPH) / actionsProbOldPH
-            Lcpi = ratio * advantagePH
-            clipped = tf.clip_by_value(ratio,(1-e),(1+e))*advantagePH
-            self.lossFunction = -tf.reduce_mean(tf.minimum(Lcpi,clipped))
-            self.train = tf.train.AdamOptimizer(learning_rate= learningRate).minimize(self.lossFunction)
+            self.actionProb = tf.expand_dims(tf.gather_nd(self.action, actionsPH),-1)
+            self.ratio = self.actionProb / actionsProbOldPH
+            self.Lcpi = self.ratio * advantagePH
+            self.clipped = tf.clip_by_value(self.ratio,(1-e),(1+e))*advantagePH
+            self.lCLIP = tf.reduce_mean(tf.minimum(self.Lcpi,self.clipped))
+            self.entropy = tf.reduce_sum(-self.action*tf.log(self.action),axis=1)
+            self.meanEntropy = tf.reduce_mean(self.entropy)
+            return self.lCLIP, self.meanEntropy
         elif tf.get_variable_scope().name=='critic':
-            self.lossFunction = tf.reduce_mean(tf.square(self.value-disRewardsPH))
-            self.train = tf.train.AdamOptimizer(learning_rate = learningRate).minimize(self.lossFunction)
+            self.lVF = tf.square(self.value-disRewardsPH)
+            self.meanlVF = tf.reduce_mean(self.lVF)
+            return self.lVF
+        else:
+            raise ValueError('no scope detected')
+
 
 
 class agent:
@@ -92,14 +102,13 @@ class agent:
     Also provides training functionality for the networks
     """
 
-    def __init__(self, env, sess, CNNoption='small',epsilon = 0.2, epochs = 10, learningRate = 0.0005, nMiniBatch = 2, loadPath = None,
-                    **network_args):
+    def __init__(self, env, sess, CNNoption='small',epsilon = 0.2, epochs = 3, learningRate = 0.0005, nMiniBatch = 2, loadPath = None,
+                    cnnStyle = 'copy', c1=1, c2 = 0.01, **network_args):
         self.env = env
         self.sess = sess
         self.CNNoption = CNNoption
         self.epsilon = epsilon
         self.epoch = epochs
-        self.learningRate = learningRate
         self.nMiniBatch = nMiniBatch
         self.loadPath  = loadPath
         self.shp = self.env.observation_space.shape
@@ -110,25 +119,54 @@ class agent:
         self.advantagePH = tf.placeholder(tf.float32, shape=[None,1],name='Advantage')
         self.disRewardsPH = tf.placeholder(tf.float32, shape = [None,1], name = 'DiscountedRewards')
 
-        with tf.variable_scope('actor'):
-            self.actor = network(self.env, self.CNNoption, self.sess)
-            self.actor.buildNetwork(self.observationPH,**network_args)
-            self.actor.updateNetwork(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon, self.learningRate)
+        if cnnStyle == 'copy':
+            with tf.variable_scope('actor'):
+                self.actor = network(self.env, self.CNNoption, self.sess)
+                self.actor.buildNetwork(self.observationPH,**network_args)
+                self.actor.createStep(**network_args)
+                self.lCLIP, self.entropy = self.actor.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
 
-        with tf.variable_scope('critic'):
-            self.critic = network(self.env, self.CNNoption, self.sess)
-            self.critic.buildNetwork(self.observationPH,**network_args)
-            self.critic.updateNetwork(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon, self.learningRate)
+            with tf.variable_scope('critic'):
+                self.critic = network(self.env, self.CNNoption, self.sess)
+                self.critic.buildNetwork(self.observationPH,**network_args)
+                self.critic.createStep(**network_args)
+                self.lVF = self.critic.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
+            self.action = self.actor.action
+            self.value = self.critic.value
+
+        elif cnnStyle == 'shared':
+            with tf.variable_scope('sharedCNN'):
+                self.shared = network(self.env, self.CNNoption, self.sess)
+                self.shared.buildNetwork(self.observationPH, **network_args)
+            with tf.variable_scope('actor'):
+                self.shared.createStep(**network_args)
+                self.lCLIP, self.entropy = self.shared.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
+            with tf.variable_scope('critic'):
+                self.shared.createStep(**network_args)
+                self.lVF = self.shared.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
+            self.action = self.shared.action
+            self.value = self.shared.value
+
+        else:
+            raise ValueError('cnnStyle not recognized')
+
+        with tf.variable_scope('trainer'):
+            self.lossFunction = -(self.lCLIP - c1 * self.lVF + c2 * self.entropy)
+            #self.printList = [ self.lCLIP, tf.shape(self.shared.entropy),tf.shape(self.shared.value),tf.shape(self.shared.lVF)]
+            #self.lossPrint = tf.Print(self.lossFunction,self.printList)
+            self.train = tf.train.AdamOptimizer(learning_rate= learningRate).minimize(self.lossFunction)
 
         self.saver = tf.train.Saver()
         print('Agent created with following properties: ', self.__dict__, network_args)
+
         if loadPath:
             self.saver.restore(self.sess, self.loadPath)
             print("Model loaded from ", self.loadPath)
         else:
             self.sess.run(tf.global_variables_initializer())
+
     def step(self, observation):
-        actionSpace, value = self.sess.run([self.actor.action, self.critic.value], feed_dict= {self.observationPH : observation})
+        actionSpace, value = self.sess.run([self.action, self.value], feed_dict= {self.observationPH : observation})
         action = np.random.choice(self.outputShape,p=actionSpace.squeeze())  ## selecting action with probabilities according to softmax layer
         return action, value.squeeze(), actionSpace.squeeze()[action]
 
@@ -147,12 +185,12 @@ class agent:
                 actionProbOldB = actionProbOld[ind]
                 advantageB = advantage[ind]
                 disRewardsB = disRewards[ind]
-                actionsB = np.transpose(np.vstack((np.arange(len(actionsB),dtype=np.int32),np.asarray(actionsB,dtype=np.int32))))
+                actionsB = np.hstack((np.arange(len(actionsB),dtype=np.int32).reshape((-1,1)),np.asarray(actionsB,dtype=np.int32)))
                 feedDict = {self.observationPH: observationsB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB}
-                self.sess.run([self.actor.train, self.critic.train],feed_dict = feedDict)
+                self.sess.run(self.train,feed_dict = feedDict)
 
     def saveNetwork(self,name):
-        savePath = self.saver.save(self.sess,name+".ckpt")
+        savePath = self.saver.save(self.sess,name)
         print("Model saved in path: %s" % savePath)
 
 ## other definitions
@@ -165,7 +203,7 @@ def advantageDR(rewards, values, gamma):
         disRewards[index] = disRewards[index-1]*gamma + rewards[index]
     return disRewards[::-1] - values, disRewards[::-1]
 
-def advantageEST(rewards, values, gamma):
+def advantageEST(rewards, values, gamma, lamda):
 
     ## using advantage estimator from article
     advantage = np.zeros_like(rewards)
@@ -173,5 +211,5 @@ def advantageEST(rewards, values, gamma):
     lastAdv = advantage[-1]
     for index in reversed(range(len(rewards)-1)):
         delta = rewards[index] + gamma * values[index+1] -values[index]
-        advantage[index] = lastAdv = delta + gamma * lastAdv
+        advantage[index] = lastAdv = delta + gamma * lamda * lastAdv
     return advantage.reshape((-1,1)), (advantage+values).reshape((-1,1))
