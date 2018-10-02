@@ -14,7 +14,7 @@ import os
 ## parsing function for easy running
 def parse_args():
         parser = argparse.ArgumentParser(description='Plot results of Simulations')
-        parser.add_argument('--env', default="SpaceInvadersDeterministic-v4")
+        parser.add_argument('--env', default="PongDeterministic-v4")
         parser.add_argument('--resultsPath', default=None)
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
@@ -29,7 +29,7 @@ def parse_args():
         parser.add_argument('--liverender', default = False, action='store_true')
         parser.add_argument('--nMiniBatch', default = 4, type=int, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
-        parser.add_argument('--saveInterval', default = 100000, type=int, help = 'save current network to disk')
+        parser.add_argument('--saveInterval', default = 10000, type=int, help = 'save current network to disk')
         parser.add_argument('--cnnStyle', default = 'copy', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
         parser.add_argument('--lamda', default = 0.95, help = 'GAE from PPO article')
         parser.add_argument('--c1', default = 1, help = 'VF coefficient')
@@ -85,8 +85,12 @@ Actions = []
 Observations = []
 Values = []
 ActionProb = []
-resultsFile = open(os.path.join(args.resultsPath,str(time.time())+".results.csv"),'a')
-resultsFile.write('r,timestep,elapsedtime \n')
+def writeResults(message,file):
+    resultsFile = open(os.path.join(args.resultsPath,file+".results.csv"),'a')
+    resultsFile.write(message+'\n')
+    resultsFile.close()
+
+writeResults('r,timestep,elapsedtime','1')
 
 
 ##main loop
@@ -112,7 +116,7 @@ for timestep in range(args.numSteps):
         tnow = time.time()
         obs = env.reset()
         latestReward = sum(EpisodeRewards)
-        resultsFile.write("{}, {}, {} \n".format(latestReward, timestep, tnow-tprev))
+        writeResults("{}, {}, {}".format(latestReward, timestep, tnow-tprev),'1')
         tprev = tnow
         EpisodeRewards = []
 
@@ -136,7 +140,6 @@ for timestep in range(args.numSteps):
 ttime = time.time()-tStart
 print("fps: ", args.numSteps/(ttime))
 Agent.saveNetwork(os.path.join(args.resultsPath,"finalModel","final.ckpt"))
-resultsFile.close()
 env.env.env.env.close()
 writer.close()
 sess.close()
