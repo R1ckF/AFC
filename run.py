@@ -29,7 +29,8 @@ def parse_args():
         parser.add_argument('--liverender', default = False, action='store_true')
         parser.add_argument('--nMiniBatch', default = 4, type=int, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
-        parser.add_argument('--saveInterval', default = 10000, type=int, help = 'save current network to disk')
+        parser.add_argument('--saveInterval', default = 100000, type=int, help = 'save current network to disk')
+        parser.add_argument('--logInterval', default = 1000, type=int, help = 'print Log message')
         parser.add_argument('--cnnStyle', default = 'copy', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
         parser.add_argument('--lamda', default = 0.95, help = 'GAE from PPO article')
         parser.add_argument('--c1', default = 1, help = 'VF coefficient')
@@ -121,7 +122,7 @@ for timestep in range(args.numSteps):
         EpisodeRewards = []
 
     if (timestep+1) % args.nsteps == 0:
-        traintime = time.time()
+        # traintime = time.time()
         Rewards, Observations, Values, Actions, ActionProb= np.asarray(Rewards,dtype=np.float32).reshape((-1,1)),  np.asarray(Observations,dtype=np.float32).squeeze(), np.asarray(Values,dtype=np.float32).reshape((-1,1)), np.asarray(Actions,dtype=np.int32).reshape((-1,1)), np.asarray(ActionProb,dtype=np.float32).reshape((-1,1))
         Advantage, DiscRewards = advantageEST(Rewards,Values,args.gamma,args.lamda)
         Agent.trainNetwork(Observations, Actions, ActionProb, Advantage, DiscRewards)
@@ -130,12 +131,15 @@ for timestep in range(args.numSteps):
 
     if (timestep+1) % args.saveInterval == 0:
         savePath = os.path.join(args.resultsPath,"checkpoints"+str(timestep)+".ckpt")
-        esttime = time.strftime("%H:%M:%S", time.gmtime((time.time()-tStart)/timestep*(args.numSteps-timestep)))
+        Agent.saveNetwork(savePath)
         print("Saving model to ",savePath )
+
+    if (timestep+1) % args.logInterval == 0:
+        esttime = time.strftime("%H:%M:%S", time.gmtime((time.time()-tStart)/timestep*(args.numSteps-timestep)))
         print("Latest reward: ", latestReward)
         print("Estimated time remaining: ", esttime)
-        print("Update {} of {}".format((timestep+1)/args.saveInterval, args.numSteps/args.saveInterval))
-        Agent.saveNetwork(savePath)
+        print("Update {} of {}".format((timestep+1)/args.logInterval, args.numSteps/args.logInterval))
+
 
 ttime = time.time()-tStart
 print("fps: ", args.numSteps/(ttime))
