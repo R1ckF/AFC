@@ -14,7 +14,7 @@ import os
 ## parsing function for easy running
 def parse_args():
         parser = argparse.ArgumentParser(description='Plot results of Simulations')
-        parser.add_argument('--env', default="PongDeterministic-v4")
+        parser.add_argument('--env', default="PongNoFrameskip-v4")
         parser.add_argument('--resultsPath', default=None)
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
