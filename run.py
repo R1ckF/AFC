@@ -95,7 +95,8 @@ writeResults('r,timestep,elapsedtime','1')
 
 
 ##main loop
-tStart = tprev = time.time()
+tStart = time.time()
+tprev = 0
 latestReward = 0
 for timestep in range(args.numSteps):
     if render:
@@ -117,8 +118,8 @@ for timestep in range(args.numSteps):
         tnow = time.time()
         obs = env.reset()
         latestReward = sum(EpisodeRewards)
-        writeResults("{}, {}, {}".format(latestReward, timestep, tnow-tprev),'1')
-        tprev = tnow
+        writeResults("{}, {}, {}".format(latestReward, timestep-tprev, tnow-tStart),'1')
+        tprev = timestep
         EpisodeRewards = []
 
     if (timestep+1) % args.nsteps == 0:
