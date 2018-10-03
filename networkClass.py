@@ -90,7 +90,7 @@ class network:
         elif tf.get_variable_scope().name=='critic':
             self.lVF = tf.square(self.value-disRewardsPH)
             self.meanlVF = tf.reduce_mean(self.lVF)
-            return self.lVF
+            return self.meanlVF
         else:
             raise ValueError('no scope detected')
 
@@ -187,7 +187,8 @@ class agent:
                 disRewardsB = disRewards[ind]
                 actionsB = np.hstack((np.arange(len(actionsB),dtype=np.int32).reshape((-1,1)),np.asarray(actionsB,dtype=np.int32)))
                 feedDict = {self.observationPH: observationsB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB}
-                self.sess.run(self.train,feed_dict = feedDict)
+                lClip, lVF, entropy, _ = self.sess.run([self.lCLIP, self.lVF, self.entropy, self.train],feed_dict = feedDict)
+        return lClip, lVF, entropy
 
     def saveNetwork(self,name):
         savePath = self.saver.save(self.sess,name)
