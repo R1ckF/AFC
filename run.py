@@ -14,26 +14,26 @@ import os
 ## parsing function for easy running
 def parse_args():
         parser = argparse.ArgumentParser(description='Plot results of Simulations')
-        parser.add_argument('--env', default="PongNoFrameskip-v4")
+        parser.add_argument('--env', default="Pendulum-v0")#"PongNoFrameskip-v4")
         parser.add_argument('--resultsPath', default=None)
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
-        parser.add_argument('--numSteps', default=5000000, type=int)
-        parser.add_argument('--CNNoption', default='small', type=str, help = 'Choose small or large')
+        parser.add_argument('--numSteps', default=100000, type=int)
+        parser.add_argument('--networkOption', default='mlp', type=str, help = 'Choose small or large or mlp')
         parser.add_argument('--activation', default=tf.nn.relu)
-        parser.add_argument('--nsteps', default=128, type=int, help='number of environment steps between training')
+        parser.add_argument('--nsteps', default=20, type=int, help='number of environment steps between training')
         parser.add_argument('--gamma', default=0.99, help='discounted reward factor')
         parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
-        parser.add_argument('--epochs', default = 3, type=int, help= 'Number of epochs for training networks')
+        parser.add_argument('--epochs', default = 4, type=int, help= 'Number of epochs for training networks')
         parser.add_argument('--learningRate', default = 2.5e-4, help= 'Starting value for the learning rate for training networks.')
         parser.add_argument('--liverender', default = False, action='store_true')
-        parser.add_argument('--nMiniBatch', default = 4, type=int, help = 'number of minibatches per trainingepoch')
+        parser.add_argument('--nMiniBatch', default = 5, type=int, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
         parser.add_argument('--saveInterval', default = 100000, type=int, help = 'save current network to disk')
-        parser.add_argument('--logInterval', default = 10000, type=int, help = 'print Log message')
-        parser.add_argument('--cnnStyle', default = 'copy', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
+        parser.add_argument('--logInterval', default = 200, type=int, help = 'print Log message')
+        parser.add_argument('--cnnStyle', default = 'shared', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
         parser.add_argument('--lamda', default = 0.95, help = 'GAE from PPO article')
-        parser.add_argument('--c1', default = 1, help = 'VF coefficient')
+        parser.add_argument('--c1', default = 0.5, help = 'VF coefficient')
         parser.add_argument('--c2', default = 0.01, help = 'entropy coefficient')
         # parser.add_argument('--fc', default=4, type=int)
         args = parser.parse_args()
@@ -42,10 +42,10 @@ def parse_args():
 #parse arguments and create dict for network options
 args=parse_args()
 if not args.resultsPath:
-    args.resultsPath = os.path.join("results",args.env+"_"+args.cnnStyle+"_"+args.CNNoption)
+    args.resultsPath = os.path.join("results",args.env+"_"+args.cnnStyle+"_"+args.networkOption)
 print(args)
 network_args = {}
-for item in ['CNNoption','activation','epsilon', 'learningRate', 'epochs', 'nMiniBatch','loadPath','cnnStyle', 'c1','c2']:
+for item in ['networkOption','activation','epsilon', 'learningRate', 'epochs', 'nMiniBatch','loadPath','cnnStyle', 'c1','c2']:
     network_args[item]=args.__dict__[item]
 render = args.liverender
 assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
@@ -65,9 +65,9 @@ assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
 #create environement
 env = gym.make(args.env)
 # env = gym.wrappers.Monitor(env, args.resultsPath, force=True)
-env = adjustFrame(env)
-env = stackFrames(env, args.stacks)
-
+# env = adjustFrame(env)
+# env = stackFrames(env, args.stacks)
+print(env.observation_space.shape)
 
 ##create network
 tf.reset_default_graph()
@@ -85,7 +85,7 @@ EpisodeRewards = []
 Actions = []
 Observations = []
 Values = []
-ActionProb = []
+ActionLogProb = []
 def writeResults(message,file):
     resultsFile = open(os.path.join(args.resultsPath,file+".results.csv"),'a')
     resultsFile.write(message+'\n')
@@ -104,17 +104,22 @@ for timestep in range(args.numSteps):
     # if i %100 ==0:
     #     plt.imshow(obs.reshape((84,84*4),order='F'))
     #     plt.show()
-    obs = obs.reshape((1,84,84,4))
+    # obs = obs.reshape((1,84,84,4))
+    obs = obs.reshape(1,3)
     Observations.append(obs)
-    action, value, actionProb = Agent.step(obs)
-    ActionProb.append(actionProb)
+    action, value, actionLogProb = Agent.step(obs)
+    print(action, value, actionLogProb)
+    ActionLogProb.append(actionLogProb)
     Actions.append(action)
     Values.append(value)
     obs, reward, done, info = env.step(action)
     Rewards.append(reward)
     EpisodeRewards.append(reward)
-
+    if (timestep+1) % 200 ==0:
+        done = True
+        print("ep aborted")
     if done:
+        print("Done")
         tnow = time.time()
         obs = env.reset()
         latestReward = sum(EpisodeRewards)
@@ -123,11 +128,13 @@ for timestep in range(args.numSteps):
         EpisodeRewards = []
 
     if (timestep+1) % args.nsteps == 0:
+        print("Training")
         # traintime = time.time()
-        Rewards, Observations, Values, Actions, ActionProb= np.asarray(Rewards,dtype=np.float32).reshape((-1,1)),  np.asarray(Observations,dtype=np.float32).squeeze(), np.asarray(Values,dtype=np.float32).reshape((-1,1)), np.asarray(Actions,dtype=np.int32).reshape((-1,1)), np.asarray(ActionProb,dtype=np.float32).reshape((-1,1))
+        Rewards, Observations, Values, Actions, ActionLogProb = np.asarray(Rewards,dtype=np.float32).reshape((-1,1)),  np.asarray(Observations,dtype=np.float32).squeeze(), np.asarray(Values,dtype=np.float32).reshape((-1,1)), np.asarray(Actions,dtype=np.int32).reshape((-1,1)), np.asarray(ActionLogProb,dtype=np.float32).reshape((-1,1))
         Advantage, DiscRewards = advantageEST(Rewards,Values,args.gamma,args.lamda)
-        lClip, lVF, entropy = Agent.trainNetwork(Observations, Actions, ActionProb, Advantage, DiscRewards)
-        Rewards, Actions, Observations, Values, ActionProb = [],[],[],[],[]
+        # advs = (advs - advs.mean()) / (advs.std() + 1e-8)
+        lClip, lVF, entropy = Agent.trainNetwork(Observations, Actions, ActionLogProb, Advantage, DiscRewards)
+        Rewards, Actions, Observations, Values, ActionLogProb = [],[],[],[],[]
         # print(time.time()-traintime)
 
     if (timestep+1) % args.saveInterval == 0:

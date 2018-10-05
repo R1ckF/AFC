@@ -1,6 +1,8 @@
 python run.py \
---cnnStyle shared \
---CNNoption small \
+--liverender \
+# --env PongNoFrameskip-v4
+# --cnnStyle shared \
+# --CNNoption small \
 
 
 # python run.py \

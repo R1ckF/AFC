@@ -6,14 +6,14 @@ import numpy as np
 class network:
     """
     This class is used as a framework that can be called to create actor or critic networks.
-    CNNoption: the network that is selected
+    networkOption: the network that is selected
         large: consists of ...
         small: consists of ...
     """
-    def __init__(self,env, CNNoption, sess):
+    def __init__(self,env, networkOption, sess):
         self.env = env
-        self.CNNoption = CNNoption
-        self.outputShape = self.env.action_space.n
+        self.networkOption = networkOption
+        # self.outputShape = self.env.action_space.n
 
         ## function that creates a convolution layers
     def conv(self, input, outputDepth, kernelsize, stride, padding="valid", name = 'Conv', **network_args):
@@ -38,7 +38,6 @@ class network:
         print(outputC2.shape)
         outputFlatten = tf.layers.flatten(outputC2)
         print(outputFlatten.shape)
-        print(self.outputShape)
         outputFC = self.fc(outputFlatten, 128, name= 'FC1', **network_args)
         print(outputFC.shape)
         return outputFC
@@ -53,24 +52,37 @@ class network:
         outputC3 = self.conv(outputC1, 64, 3, 1, name = 'Conv3', **network_args)
         outputFlatten = tf.layers.flatten(outputC3)
         print(outputFlatten.shape)
-        print(self.outputShape)
         outputFC = self.fc(outputFlatten, 512, name= 'FC', **network_args)
         print(outputFC.shape)
         return outputFC
 
+    def mlp(self, observationPH, numNodes=64, **network_args):
+        print(observationPH.shape)
+        outputFC1 = self.fc(observationPH, numNodes, name = 'FC1', **network_args)
+        print(outputFC1.shape)
+        # outputFC2 = self.fc(outputFC1, numNodes, name = 'FC2', **network_args)
+        # print(outputFC2.shape)
+        return outputFC1
+
     def buildNetwork(self,observationPH,**network_args):
-        if self.CNNoption == 'small':
+        if self.networkOption == 'small':
             print('Small network selected')
             self.networkOutput=self.cnnSmall(observationPH,**network_args)
-        elif self.CNNoption == 'large':
+        elif self.networkOption == 'large':
             print('Large network selected')
             self.networkOutput=self.cnnLarge(observationPH,**network_args)
+        elif self.networkOption == 'mlp':
+            self.networkOutput=self.mlp(observationPH, **network_args)
         else:
             raise ValueError('Invalid network option')
 
     def createStep(self, **network_args):
         if tf.get_variable_scope().name=='actor':
-            self.action = tf.nn.softmax(self.fc(self.networkOutput, self.outputShape, name= 'Action', **network_args))
+            mu = self.fc(self.networkOutput,1, name='mu',**network_args)
+            std = self.fc(self.networkOutput,1,name='sigma',**network_args)
+            self.dist = tf.distributions.Normal(loc = mu, scale = std)
+            # self.action = tf.nn.softmax(self.fc(self.networkOutput, self.outputShape, name= 'Action', **network_args))
+            # self.action = self.dist.sample(1)
         elif tf.get_variable_scope().name=='critic':
             self.value = self.fc(self.networkOutput, 1, name='Value', **network_args)
         else:
@@ -79,13 +91,14 @@ class network:
 
     def lossFunction(self,actionsPH, actionsProbOldPH, advantagePH, disRewardsPH, e):
         if tf.get_variable_scope().name=='actor':
-            self.actionProb = tf.expand_dims(tf.gather_nd(self.action, actionsPH),-1)
-            self.ratio = self.actionProb / actionsProbOldPH
-            self.Lcpi = self.ratio * advantagePH
-            self.clipped = tf.clip_by_value(self.ratio,(1-e),(1+e))*advantagePH
-            self.lCLIP = tf.reduce_mean(tf.minimum(self.Lcpi,self.clipped))
-            self.entropy = tf.reduce_sum(-self.action*tf.log(self.action),axis=1)
-            self.meanEntropy = tf.reduce_mean(self.entropy)
+            actionLogProbNew2 = self.dist.prob(actionsPH)
+            actionLogProbNew = tf.Print(actionLogProbNew2, [actionLogProbNew2, actionsProbOldPH])
+            ratio2 = actionLogProbNew / actionsProbOldPH #tf.exp(actionLogProbNew - actionsProbOldPH)
+            ratio = tf.Print(ratio2,[(ratio2)])
+            Lcpi = ratio * advantagePH
+            clipped = tf.clip_by_value(ratio,(1-e),(1+e))*advantagePH
+            self.lCLIP = tf.reduce_mean(tf.minimum(Lcpi,clipped))
+            self.meanEntropy = tf.reduce_mean(self.dist.entropy())
             return self.lCLIP, self.meanEntropy
         elif tf.get_variable_scope().name=='critic':
             self.lVF = tf.square(self.value-disRewardsPH)
@@ -102,41 +115,41 @@ class agent:
     Also provides training functionality for the networks
     """
 
-    def __init__(self, env, sess, CNNoption='small',epsilon = 0.2, epochs = 3, learningRate = 0.0005, nMiniBatch = 2, loadPath = None,
+    def __init__(self, env, sess, networkOption='small',epsilon = 0.2, epochs = 3, learningRate = 0.0005, nMiniBatch = 2, loadPath = None,
                     cnnStyle = 'copy', c1=1, c2 = 0.01, **network_args):
         self.env = env
         self.sess = sess
-        self.CNNoption = CNNoption
+        self.networkOption = networkOption
         self.epsilon = epsilon
         self.epoch = epochs
         self.nMiniBatch = nMiniBatch
         self.loadPath  = loadPath
         self.shp = self.env.observation_space.shape
-        self.observationPH = tf.placeholder(tf.float32,shape=[None, self.shp[0],self.shp[1],self.shp[2]], name = "Observation")
-        self.outputShape = self.env.action_space.n
-        self.actionsPH = tf.placeholder(tf.int32,shape=[None,2],name='Actions')
+        self.observationPH = tf.placeholder(tf.float32,shape=[None, self.shp[0]], name = "Observation")#,self.shp[1],self.shp[2]]
+        # self.outputShape = self.env.action_space.n
+        self.actionsPH = tf.placeholder(tf.float32,shape=[None,1],name='Actions')
         self.actionsProbOldPH = tf.placeholder(tf.float32,shape=[None,1],name='ActionProbOld')
         self.advantagePH = tf.placeholder(tf.float32, shape=[None,1],name='Advantage')
         self.disRewardsPH = tf.placeholder(tf.float32, shape = [None,1], name = 'DiscountedRewards')
 
         if cnnStyle == 'copy':
             with tf.variable_scope('actor'):
-                self.actor = network(self.env, self.CNNoption, self.sess)
+                self.actor = network(self.env, self.networkOption, self.sess)
                 self.actor.buildNetwork(self.observationPH,**network_args)
                 self.actor.createStep(**network_args)
                 self.lCLIP, self.entropy = self.actor.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
 
             with tf.variable_scope('critic'):
-                self.critic = network(self.env, self.CNNoption, self.sess)
+                self.critic = network(self.env, self.networkOption, self.sess)
                 self.critic.buildNetwork(self.observationPH,**network_args)
                 self.critic.createStep(**network_args)
                 self.lVF = self.critic.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
-            self.action = self.actor.action
+            self.dist = self.actor.dist
             self.value = self.critic.value
 
         elif cnnStyle == 'shared':
             with tf.variable_scope('sharedCNN'):
-                self.shared = network(self.env, self.CNNoption, self.sess)
+                self.shared = network(self.env, self.networkOption, self.sess)
                 self.shared.buildNetwork(self.observationPH, **network_args)
             with tf.variable_scope('actor'):
                 self.shared.createStep(**network_args)
@@ -144,7 +157,7 @@ class agent:
             with tf.variable_scope('critic'):
                 self.shared.createStep(**network_args)
                 self.lVF = self.shared.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
-            self.action = self.shared.action
+            self.dist = self.shared.dist
             self.value = self.shared.value
 
         else:
@@ -166,13 +179,15 @@ class agent:
             self.sess.run(tf.global_variables_initializer())
 
     def step(self, observation):
-        actionSpace, value = self.sess.run([self.action, self.value], feed_dict= {self.observationPH : observation})
-        action = np.random.choice(self.outputShape,p=actionSpace.squeeze())  ## selecting action with probabilities according to softmax layer
-        return action, value.squeeze(), actionSpace.squeeze()[action]
+        self.action = self.dist.sample(1)
+        self.logProb = self.dist.prob(self.action)
+        action , logProb, value = self.sess.run([self.action, self.logProb, self.value], feed_dict= {self.observationPH : observation})
+        return np.clip(action.squeeze(), -2, 2).reshape(-1,1), value.squeeze(), logProb.squeeze()
 
     def trainNetwork(self, observations, actions, actionProbOld, advantage, disRewards):
         l = observations.shape[0]
         step = int(l/self.nMiniBatch)
+        assert(self.nMiniBatch*step == l)
         indices = range(0,l,step)
         randomIndex = np.arange(l)
         for _ in range(self.epoch):
@@ -185,7 +200,6 @@ class agent:
                 actionProbOldB = actionProbOld[ind]
                 advantageB = advantage[ind]
                 disRewardsB = disRewards[ind]
-                actionsB = np.hstack((np.arange(len(actionsB),dtype=np.int32).reshape((-1,1)),np.asarray(actionsB,dtype=np.int32)))
                 feedDict = {self.observationPH: observationsB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB}
                 lClip, lVF, entropy, _ = self.sess.run([self.lCLIP, self.lVF, self.entropy, self.train],feed_dict = feedDict)
         return lClip, lVF, entropy
