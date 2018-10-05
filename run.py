@@ -107,6 +107,7 @@ for timestep in range(args.numSteps):
     # obs = obs.reshape((1,84,84,4))
     obs = obs.reshape(1,3)
     Observations.append(obs)
+    print(obs.shape)
     action, value, actionLogProb = Agent.step(obs)
     print(action, value, actionLogProb)
     ActionLogProb.append(actionLogProb)

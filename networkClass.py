@@ -91,9 +91,9 @@ class network:
 
     def lossFunction(self,actionsPH, actionsProbOldPH, advantagePH, disRewardsPH, e):
         if tf.get_variable_scope().name=='actor':
-            actionLogProbNew2 = self.dist.prob(actionsPH)
+            actionLogProbNew2 = self.dist.log_prob(actionsPH)
             actionLogProbNew = tf.Print(actionLogProbNew2, [actionLogProbNew2, actionsProbOldPH])
-            ratio2 = actionLogProbNew / actionsProbOldPH #tf.exp(actionLogProbNew - actionsProbOldPH)
+            ratio2 = tf.exp(actionLogProbNew - actionsProbOldPH)
             ratio = tf.Print(ratio2,[(ratio2)])
             Lcpi = ratio * advantagePH
             clipped = tf.clip_by_value(ratio,(1-e),(1+e))*advantagePH
@@ -179,8 +179,9 @@ class agent:
             self.sess.run(tf.global_variables_initializer())
 
     def step(self, observation):
-        self.action = self.dist.sample(1)
-        self.logProb = self.dist.prob(self.action)
+        self.action2 = self.dist.sample(1)
+        self.action = tf.Print(self.action2, [self.action2, self.dist.loc,self.dist.scale])
+        self.logProb = self.dist.log_prob(self.action)
         action , logProb, value = self.sess.run([self.action, self.logProb, self.value], feed_dict= {self.observationPH : observation})
         return np.clip(action.squeeze(), -2, 2).reshape(-1,1), value.squeeze(), logProb.squeeze()
 
