@@ -10,6 +10,7 @@ import time
 import timeit
 import pickle
 import os
+from tensorflow.python import debug as tf_debug
 
 ## parsing function for easy running
 def parse_args():
@@ -18,19 +19,19 @@ def parse_args():
         parser.add_argument('--resultsPath', default=None)
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
-        parser.add_argument('--numSteps', default=100000, type=int)
+        parser.add_argument('--numSteps', default=200000, type=int)
         parser.add_argument('--networkOption', default='mlp', type=str, help = 'Choose small or large or mlp')
         parser.add_argument('--activation', default=tf.nn.relu)
-        parser.add_argument('--nsteps', default=20, type=int, help='number of environment steps between training')
+        parser.add_argument('--nsteps', default=128, type=int, help='number of environment steps between training')
         parser.add_argument('--gamma', default=0.99, help='discounted reward factor')
         parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
         parser.add_argument('--epochs', default = 4, type=int, help= 'Number of epochs for training networks')
         parser.add_argument('--learningRate', default = 2.5e-4, help= 'Starting value for the learning rate for training networks.')
         parser.add_argument('--liverender', default = False, action='store_true')
-        parser.add_argument('--nMiniBatch', default = 5, type=int, help = 'number of minibatches per trainingepoch')
+        parser.add_argument('--nMiniBatch', default = 4, type=int, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
         parser.add_argument('--saveInterval', default = 100000, type=int, help = 'save current network to disk')
-        parser.add_argument('--logInterval', default = 200, type=int, help = 'print Log message')
+        parser.add_argument('--logInterval', default = 2000, type=int, help = 'print Log message')
         parser.add_argument('--cnnStyle', default = 'shared', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
         parser.add_argument('--lamda', default = 0.95, help = 'GAE from PPO article')
         parser.add_argument('--c1', default = 0.5, help = 'VF coefficient')
@@ -72,6 +73,7 @@ print(env.observation_space.shape)
 ##create network
 tf.reset_default_graph()
 sess = tf.Session()
+# sess = tf_debug.LocalCLIDebugWrapperSession(sess)
 Agent = agent(env, sess, **network_args)
 
 
@@ -107,13 +109,17 @@ for timestep in range(args.numSteps):
     # obs = obs.reshape((1,84,84,4))
     obs = obs.reshape(1,3)
     Observations.append(obs)
-    print(obs.shape)
-    action, value, actionLogProb = Agent.step(obs)
-    print(action, value, actionLogProb)
+    # print(obs.shape)
+    # tt = time.time()
+    action, value, actionLogProb = Agent.step(obs,writer,timestep)
+    # print("agent step: ",time.time()-tt)
+    # print(action, value, actionLogProb)
     ActionLogProb.append(actionLogProb)
     Actions.append(action)
     Values.append(value)
+    # tt = time.time()
     obs, reward, done, info = env.step(action)
+    # print("env step: ", time.time()-tt)
     Rewards.append(reward)
     EpisodeRewards.append(reward)
     if (timestep+1) % 200 ==0:
@@ -129,14 +135,14 @@ for timestep in range(args.numSteps):
         EpisodeRewards = []
 
     if (timestep+1) % args.nsteps == 0:
-        print("Training")
+        # print("Training")
         # traintime = time.time()
         Rewards, Observations, Values, Actions, ActionLogProb = np.asarray(Rewards,dtype=np.float32).reshape((-1,1)),  np.asarray(Observations,dtype=np.float32).squeeze(), np.asarray(Values,dtype=np.float32).reshape((-1,1)), np.asarray(Actions,dtype=np.int32).reshape((-1,1)), np.asarray(ActionLogProb,dtype=np.float32).reshape((-1,1))
         Advantage, DiscRewards = advantageEST(Rewards,Values,args.gamma,args.lamda)
         # advs = (advs - advs.mean()) / (advs.std() + 1e-8)
         lClip, lVF, entropy = Agent.trainNetwork(Observations, Actions, ActionLogProb, Advantage, DiscRewards)
         Rewards, Actions, Observations, Values, ActionLogProb = [],[],[],[],[]
-        # print(time.time()-traintime)
+        # print("Train time: ", time.time()-traintime)
 
     if (timestep+1) % args.saveInterval == 0:
         savePath = os.path.join(args.resultsPath,"checkpoints"+str(timestep)+".ckpt")
@@ -155,6 +161,7 @@ for timestep in range(args.numSteps):
 ttime = time.time()-tStart
 print("fps: ", args.numSteps/(ttime))
 Agent.saveNetwork(os.path.join(args.resultsPath,"finalModel","final.ckpt"))
-env.env.env.env.close()
+
 writer.close()
 sess.close()
+env.close()

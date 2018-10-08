@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import numpy as np
-
+import time
 
 class network:
     """
@@ -56,7 +56,7 @@ class network:
         print(outputFC.shape)
         return outputFC
 
-    def mlp(self, observationPH, numNodes=64, **network_args):
+    def mlp(self, observationPH, numNodes=100, **network_args):
         print(observationPH.shape)
         outputFC1 = self.fc(observationPH, numNodes, name = 'FC1', **network_args)
         print(outputFC1.shape)
@@ -78,8 +78,9 @@ class network:
 
     def createStep(self, **network_args):
         if tf.get_variable_scope().name=='actor':
-            mu = self.fc(self.networkOutput,1, name='mu',**network_args)
-            std = self.fc(self.networkOutput,1,name='sigma',**network_args)
+            print(network_args)
+            mu = 2 * self.fc(self.networkOutput,1, name='mu',activation= tf.nn.tanh)
+            std = self.fc(self.networkOutput,1,name='sigma',activation=tf.nn.softplus)
             self.dist = tf.distributions.Normal(loc = mu, scale = std)
             # self.action = tf.nn.softmax(self.fc(self.networkOutput, self.outputShape, name= 'Action', **network_args))
             # self.action = self.dist.sample(1)
@@ -91,10 +92,10 @@ class network:
 
     def lossFunction(self,actionsPH, actionsProbOldPH, advantagePH, disRewardsPH, e):
         if tf.get_variable_scope().name=='actor':
-            actionLogProbNew2 = self.dist.log_prob(actionsPH)
-            actionLogProbNew = tf.Print(actionLogProbNew2, [actionLogProbNew2, actionsProbOldPH])
-            ratio2 = tf.exp(actionLogProbNew - actionsProbOldPH)
-            ratio = tf.Print(ratio2,[(ratio2)])
+            actionLogProbNew = self.dist.log_prob(actionsPH)
+            # actionLogProbNew = tf.Print(actionLogProbNew2, [actionLogProbNew2, actionsProbOldPH])
+            ratio = tf.exp(actionLogProbNew - actionsProbOldPH)
+            # ratio = tf.Print(ratio2,[(ratio2)])
             Lcpi = ratio * advantagePH
             clipped = tf.clip_by_value(ratio,(1-e),(1+e))*advantagePH
             self.lCLIP = tf.reduce_mean(tf.minimum(Lcpi,clipped))
@@ -145,7 +146,9 @@ class agent:
                 self.critic.createStep(**network_args)
                 self.lVF = self.critic.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
             self.dist = self.actor.dist
+            self.action = self.dist.sample(1)
             self.value = self.critic.value
+            self.logProb = self.dist.log_prob(self.action)
 
         elif cnnStyle == 'shared':
             with tf.variable_scope('sharedCNN'):
@@ -158,7 +161,9 @@ class agent:
                 self.shared.createStep(**network_args)
                 self.lVF = self.shared.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
             self.dist = self.shared.dist
+            self.action = self.dist.sample(1)
             self.value = self.shared.value
+            self.logProb = self.dist.log_prob(self.action)
 
         else:
             raise ValueError('cnnStyle not recognized')
@@ -178,11 +183,17 @@ class agent:
         else:
             self.sess.run(tf.global_variables_initializer())
 
-    def step(self, observation):
-        self.action2 = self.dist.sample(1)
-        self.action = tf.Print(self.action2, [self.action2, self.dist.loc,self.dist.scale])
-        self.logProb = self.dist.log_prob(self.action)
-        action , logProb, value = self.sess.run([self.action, self.logProb, self.value], feed_dict= {self.observationPH : observation})
+    def step(self, observation,writer,i):
+
+        # self.action = tf.Print(self.action2, [self.action2, self.dist.loc,self.dist.scale])
+
+        # run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+        # run_metadata = tf.RunMetadata()
+        # tt = time.time()
+        action , logProb, value = self.sess.run([self.action, self.logProb, self.value], feed_dict= {self.observationPH : observation})#, options=run_options, run_metadata=run_metadata)
+        # print("sess time: ", time.time()-tt)
+        # writer.add_run_metadata(run_metadata, 'step%d' % i)
+
         return np.clip(action.squeeze(), -2, 2).reshape(-1,1), value.squeeze(), logProb.squeeze()
 
     def trainNetwork(self, observations, actions, actionProbOld, advantage, disRewards):
