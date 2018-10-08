@@ -2,6 +2,7 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import numpy as np
 import time
+import gym
 
 class network:
     """
@@ -78,14 +79,19 @@ class network:
 
     def createStep(self, **network_args):
         if tf.get_variable_scope().name=='actor':
-            print(network_args)
-            mu = 2 * self.fc(self.networkOutput,1, name='mu',activation= tf.nn.tanh)
-            std = self.fc(self.networkOutput,1,name='sigma',activation=tf.nn.softplus)
-            self.dist = tf.distributions.Normal(loc = mu, scale = std)
+            if isinstance(self.env.action_space,gym.spaces.Box):
+                print("Continous Control")
+                mu = 2 * self.fc(self.networkOutput,1, name='mu',activation= tf.nn.tanh)
+                std = self.fc(self.networkOutput,1,name='sigma',activation=tf.nn.softplus)
+                self.dist = tf.distributions.Normal(loc = mu, scale = std)
+            elif isinstance(env.action_space, gym.spaces.Discrete):
+                outputShape = env.action_space.n
+
+
             # self.action = tf.nn.softmax(self.fc(self.networkOutput, self.outputShape, name= 'Action', **network_args))
             # self.action = self.dist.sample(1)
         elif tf.get_variable_scope().name=='critic':
-            self.value = self.fc(self.networkOutput, 1, name='Value', **network_args)
+            self.value = self.fc(self.networkOutput, 1, name='Value', activation=None)
         else:
             raise ValueError('no scope detected')
 
@@ -170,9 +176,12 @@ class agent:
 
         with tf.variable_scope('trainer'):
             self.lossFunction = -(self.lCLIP - c1 * self.lVF + c2 * self.entropy)
+            self.Aloss = -self.lCLIP
+            self.Closs = self.lVF
             #self.printList = [ self.lCLIP, tf.shape(self.shared.entropy),tf.shape(self.shared.value),tf.shape(self.shared.lVF)]
             #self.lossPrint = tf.Print(self.lossFunction,self.printList)
-            self.train = tf.train.AdamOptimizer(learning_rate= learningRate).minimize(self.lossFunction)
+            self.trainA = tf.train.AdamOptimizer(learning_rate= learningRate).minimize(self.Aloss)
+            self.trainC = tf.train.AdamOptimizer(learning_rate = learningRate).minimize(self.Closs)
 
         self.saver = tf.train.Saver()
         print('Agent created with following properties: ', self.__dict__, network_args)
@@ -213,7 +222,7 @@ class agent:
                 advantageB = advantage[ind]
                 disRewardsB = disRewards[ind]
                 feedDict = {self.observationPH: observationsB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB}
-                lClip, lVF, entropy, _ = self.sess.run([self.lCLIP, self.lVF, self.entropy, self.train],feed_dict = feedDict)
+                lClip, lVF, entropy, _ ,_ = self.sess.run([self.lCLIP, self.lVF, self.entropy, self.trainA, self.trainC],feed_dict = feedDict)
         return lClip, lVF, entropy
 
     def saveNetwork(self,name):
