@@ -31,8 +31,8 @@ def parse_args():
         parser.add_argument('--nMiniBatch', default = 1, type=int, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
         parser.add_argument('--saveInterval', default = 100000, type=int, help = 'save current network to disk')
-        parser.add_argument('--logInterval', default = 2000, type=int, help = 'print Log message')
-        parser.add_argument('--cnnStyle', default = 'shared', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
+        parser.add_argument('--logInterval', default = 200, type=int, help = 'print Log message')
+        parser.add_argument('--cnnStyle', default = 'copy', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
         parser.add_argument('--lamda', default = 0.95, help = 'GAE from PPO article')
         parser.add_argument('--c1', default = 0.5, help = 'VF coefficient')
         parser.add_argument('--c2', default = 0.01, help = 'entropy coefficient')
@@ -48,6 +48,7 @@ print(args)
 network_args = {}
 for item in ['networkOption','activation','epsilon', 'learningRate', 'epochs', 'nMiniBatch','loadPath','cnnStyle', 'c1','c2']:
     network_args[item]=args.__dict__[item]
+network_args['kernel_initializer'] = tf.ones_initializer()
 render = args.liverender
 assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
 # rewards = np.ones(10)
@@ -64,7 +65,7 @@ assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
 # print(dr)
 
 #create environement
-env = gym.make(args.env)
+env = gym.make(args.env).unwrapped
 # env = gym.wrappers.Monitor(env, args.resultsPath, force=True)
 # env = adjustFrame(env)
 # env = stackFrames(env, args.stacks)
@@ -111,16 +112,16 @@ for timestep in range(args.numSteps):
     Observations.append(obs)
     # print(obs.shape)
     # tt = time.time()
-    action, value, actionLogProb = Agent.step(obs,writer,timestep)
+    action = Agent.step(obs,writer,timestep)
     # print("agent step: ",time.time()-tt)
     # print(action, value, actionLogProb)
-    ActionLogProb.append(actionLogProb)
+    # ActionLogProb.append(actionLogProb)
     Actions.append(action)
-    Values.append(value)
+    # Values.append(value)
     # tt = time.time()
     obs, reward, done, info = env.step(action)
     # print("env step: ", time.time()-tt)
-    Rewards.append(reward)
+    Rewards.append((reward+8)/8)
     EpisodeRewards.append(reward)
     if (timestep+1) % 200 ==0:
         done = True
@@ -137,10 +138,11 @@ for timestep in range(args.numSteps):
     if (timestep+1) % args.nsteps == 0:
         # print("Training")
         # traintime = time.time()
-        Rewards, Observations, Values, Actions, ActionLogProb = np.asarray(Rewards,dtype=np.float32).reshape((-1,1)),  np.asarray(Observations,dtype=np.float32).squeeze(), np.asarray(Values,dtype=np.float32).reshape((-1,1)), np.asarray(Actions,dtype=np.int32).reshape((-1,1)), np.asarray(ActionLogProb,dtype=np.float32).reshape((-1,1))
-        Advantage, DiscRewards = advantageEST(Rewards,Values,args.gamma,args.lamda)
-        Advantage = (Advantage - Advantage.mean()) / (Advantage.std() + 1e-8)
-        lClip, lVF, entropy = Agent.trainNetwork(Observations, Actions, ActionLogProb, Advantage, DiscRewards)
+        Rewards, Observations, Actions = np.asarray(Rewards,dtype=np.float32).reshape((-1,1)),  np.asarray(Observations,dtype=np.float32).squeeze(),  np.asarray(Actions,dtype=np.int32).reshape((-1,1))
+        # Advantage = (Advantage - Advantage.mean()) / (Advantage.std() + 1e-8)
+        value = Agent.get_Value(obs.reshape(1,3))
+        DiscRewards = advantageDR(Rewards,args.gamma,value)
+        aLoss, cLoss = Agent.trainNetwork(Observations, Actions, DiscRewards)
         Rewards, Actions, Observations, Values, ActionLogProb = [],[],[],[],[]
         # print("Train time: ", time.time()-traintime)
 
@@ -156,7 +158,7 @@ for timestep in range(args.numSteps):
         print("Latest reward: ", latestReward)
         print("Estimated time remaining: ", esttime)
         print("Update {} of {}".format((timestep+1)/args.logInterval, args.numSteps/args.logInterval))
-        print("PolicyLoss: {} \n ValueLoss: {} \n EntropyLoss: {} \n".format(-lClip, lVF, entropy))
+        print("PolicyLoss: {} \n ValueLoss: {} \n EntropyLoss: {} \n".format(aLoss, cLoss, 0))
 
 ttime = time.time()-tStart
 print("fps: ", args.numSteps/(ttime))

@@ -78,16 +78,12 @@ class network:
             raise ValueError('Invalid network option')
 
     def createStep(self, **network_args):
-        if tf.get_variable_scope().name=='actor' or tf.get_variable_scope().name=='actorOld':
+        if tf.get_variable_scope().name=='actor':
             if isinstance(self.env.action_space,gym.spaces.Box):
                 print("Continous Control")
-                network_args['activation'] = tf.nn.tanh
-                mu = 2 * self.fc(self.networkOutput,1, name='mu',**network_args)
-                network_args['activation'] = tf.nn.softplus
-                std = self.fc(self.networkOutput,1,name='sigma',**network_args)
-                network_args['activation'] = tf.nn.relu
+                mu = 2 * self.fc(self.networkOutput,1, name='mu',activation= tf.nn.tanh)
+                std = self.fc(self.networkOutput,1,name='sigma',activation=tf.nn.softplus)
                 self.dist = tf.distributions.Normal(loc = mu, scale = std)
-                self.params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=tf.get_variable_scope().name)
             elif isinstance(env.action_space, gym.spaces.Discrete):
                 outputShape = env.action_space.n
 
@@ -100,23 +96,23 @@ class network:
             raise ValueError('no scope detected')
 
 
-    # def lossFunction(self,actionsPH, actionsProbOldPH, advantagePH, disRewardsPH, e):
-    #     if tf.get_variable_scope().name=='actor':
-    #         actionLogProbNew = self.dist.log_prob(actionsPH)
-    #         # actionLogProbNew = tf.Print(actionLogProbNew2, [actionLogProbNew2, actionsProbOldPH])
-    #         ratio = tf.exp(actionLogProbNew - actionsProbOldPH)
-    #         # ratio = tf.Print(ratio2,[(ratio2)])
-    #         Lcpi = ratio * advantagePH
-    #         clipped = tf.clip_by_value(ratio,(1-e),(1+e))*advantagePH
-    #         self.lCLIP = tf.reduce_mean(tf.minimum(Lcpi,clipped))
-    #         self.meanEntropy = tf.reduce_mean(self.dist.entropy())
-    #         return self.lCLIP, self.meanEntropy
-    #     elif tf.get_variable_scope().name=='critic':
-    #         self.lVF = tf.square(self.value-disRewardsPH)
-    #         self.meanlVF = tf.reduce_mean(self.lVF)
-    #         return self.meanlVF
-    #     else:
-    #         raise ValueError('no scope detected')
+    def lossFunction(self,actionsPH, actionsProbOldPH, advantagePH, disRewardsPH, e):
+        if tf.get_variable_scope().name=='actor':
+            actionLogProbNew = self.dist.log_prob(actionsPH)
+            # actionLogProbNew = tf.Print(actionLogProbNew2, [actionLogProbNew2, actionsProbOldPH])
+            ratio = tf.exp(actionLogProbNew - actionsProbOldPH)
+            # ratio = tf.Print(ratio2,[(ratio2)])
+            Lcpi = ratio * advantagePH
+            clipped = tf.clip_by_value(ratio,(1-e),(1+e))*advantagePH
+            self.lCLIP = tf.reduce_mean(tf.minimum(Lcpi,clipped))
+            self.meanEntropy = tf.reduce_mean(self.dist.entropy())
+            return self.lCLIP, self.meanEntropy
+        elif tf.get_variable_scope().name=='critic':
+            self.lVF = tf.square(self.value-disRewardsPH)
+            self.meanlVF = tf.reduce_mean(self.lVF)
+            return self.meanlVF
+        else:
+            raise ValueError('no scope detected')
 
 
 
@@ -139,50 +135,26 @@ class agent:
         self.observationPH = tf.placeholder(tf.float32,shape=[None, self.shp[0]], name = "Observation")#,self.shp[1],self.shp[2]]
         # self.outputShape = self.env.action_space.n
         self.actionsPH = tf.placeholder(tf.float32,shape=[None,1],name='Actions')
-        # self.actionsProbOldPH = tf.placeholder(tf.float32,shape=[None,1],name='ActionProbOld')
+        self.actionsProbOldPH = tf.placeholder(tf.float32,shape=[None,1],name='ActionProbOld')
         self.advantagePH = tf.placeholder(tf.float32, shape=[None,1],name='Advantage')
         self.disRewardsPH = tf.placeholder(tf.float32, shape = [None,1], name = 'DiscountedRewards')
 
         if cnnStyle == 'copy':
             with tf.variable_scope('actor'):
-                network_args['trainable']=True
                 self.actor = network(self.env, self.networkOption, self.sess)
                 self.actor.buildNetwork(self.observationPH,**network_args)
                 self.actor.createStep(**network_args)
-
-            with tf.variable_scope('actorOld'):
-                network_args['trainable']=False
-                self.actorOld = network(self.env, self.networkOption, self.sess)
-                self.actorOld.buildNetwork(self.observationPH,**network_args)
-                self.actorOld.createStep(**network_args)
-                # self.lCLIP, self.entropy = self.actor.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
+                self.lCLIP, self.entropy = self.actor.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
 
             with tf.variable_scope('critic'):
-                network_args['trainable']=True
                 self.critic = network(self.env, self.networkOption, self.sess)
                 self.critic.buildNetwork(self.observationPH,**network_args)
                 self.critic.createStep(**network_args)
-                self.value = self.critic.value
-                self.advantage = self.disRewardsPH - self.value
-                self.cLoss = tf.reduce_mean(tf.square(self.advantage))
-                self.ctrain = tf.train.AdamOptimizer(learning_rate = 0.0002).minimize(self.cLoss)
-
-            with tf.variable_scope('sampleAction'):
-                self.action = tf.squeeze(self.actor.dist.sample(1),axis=0)
-
-            with tf.variable_scope('updateActorOld'):
-                self.updateActorOld = [oldParameter.assign(p) for p, oldParameter in zip(self.actor.params, self.actorOld.params) ]
-
-            with tf.variable_scope('Loss'):
-                with tf.variable_scope('Surrogate'):
-                    ratio = tf.exp(self.actor.dist.log_prob(self.actionsPH)-self.actorOld.dist.log_prob(self.actionsPH))
-                    surr = ratio * self.advantagePH
-                self.aLoss = -tf.reduce_mean(tf.minimum(surr,tf.clip_by_value(ratio,1-self.epsilon, 1+self.epsilon)*self.advantagePH))
-
-            with tf.variable_scope('aTrain'):
-                self.atrain = tf.train.AdamOptimizer(learning_rate = 0.0001).minimize(self.aLoss)
-
-
+                self.lVF = self.critic.lossFunction(self.actionsPH, self.actionsProbOldPH, self.advantagePH, self.disRewardsPH, self.epsilon)
+            self.dist = self.actor.dist
+            self.action = self.dist.sample(1)
+            self.value = self.critic.value
+            self.logProb = self.dist.log_prob(self.action)
 
         elif cnnStyle == 'shared':
             with tf.variable_scope('sharedCNN'):
@@ -201,17 +173,17 @@ class agent:
 
         else:
             raise ValueError('cnnStyle not recognized')
-        #
-        # with tf.variable_scope('trainer'):
-        #     self.lossFunction = -(self.lCLIP - c1 * self.lVF + c2 * self.entropy)
-        #     self.Aloss = -self.lCLIP
-        #     self.Closs = self.lVF
-        #     #self.printList = [ self.lCLIP, tf.shape(self.shared.entropy),tf.shape(self.shared.value),tf.shape(self.shared.lVF)]
-        #     #self.lossPrint = tf.Print(self.lossFunction,self.printList)
-        #     self.trainA = tf.train.AdamOptimizer(learning_rate= learningRate).minimize(self.Aloss)
-        #     self.trainC = tf.train.AdamOptimizer(learning_rate = learningRate).minimize(self.Closs)
 
-        # self.saver = tf.train.Saver()
+        with tf.variable_scope('trainer'):
+            self.lossFunction = -(self.lCLIP - c1 * self.lVF + c2 * self.entropy)
+            self.Aloss = -self.lCLIP
+            self.Closs = self.lVF
+            #self.printList = [ self.lCLIP, tf.shape(self.shared.entropy),tf.shape(self.shared.value),tf.shape(self.shared.lVF)]
+            #self.lossPrint = tf.Print(self.lossFunction,self.printList)
+            self.trainA = tf.train.AdamOptimizer(learning_rate= learningRate).minimize(self.Aloss)
+            self.trainC = tf.train.AdamOptimizer(learning_rate = learningRate).minimize(self.Closs)
+
+        self.saver = tf.train.Saver()
         print('Agent created with following properties: ', self.__dict__, network_args)
 
         if loadPath:
@@ -227,76 +199,45 @@ class agent:
         # run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
         # run_metadata = tf.RunMetadata()
         # tt = time.time()
-
-        action = self.sess.run([self.action], feed_dict= {self.observationPH : observation})[0]#, options=run_options, run_metadata=run_metadata)
+        action , logProb, value = self.sess.run([self.action, self.logProb, self.value], feed_dict= {self.observationPH : observation})#, options=run_options, run_metadata=run_metadata)
         # print("sess time: ", time.time()-tt)
         # writer.add_run_metadata(run_metadata, 'step%d' % i)
 
-        return np.clip(action, -2, 2)
+        return np.clip(action.squeeze(), -2, 2).reshape(-1,1), value.squeeze(), logProb.squeeze()
 
-    def trainNetwork(self, observations, actions, disRewards):
-        self.sess.run(self.updateActorOld)
-        adv = self.sess.run(self.advantage, {self.observationPH: observations, self.disRewardsPH: disRewards})
-        # adv = (adv - adv.mean()) / (adv.std() + 1e-6)
-
+    def trainNetwork(self, observations, actions, actionProbOld, advantage, disRewards):
+        l = observations.shape[0]
+        step = int(l/self.nMiniBatch)
+        assert(self.nMiniBatch*step == l)
+        indices = range(0,l,step)
+        randomIndex = np.arange(l)
         for _ in range(self.epoch):
-            aLoss, _ = self.sess.run([self.aLoss, self.atrain], {self.observationPH: observations, self.actionsPH: actions, self.advantagePH: adv})
-
-        for _ in range(self.epoch):
-            cLoss, _  = self.sess.run([self.cLoss, self.ctrain], {self.observationPH: observations, self.disRewardsPH: disRewards})
-
-        return aLoss, cLoss
-
-    def get_Value(self, obs):
-        if obs.ndim < 2: obs = obs[np.newaxis,:]
-        return self.sess.run(self.value,{self.observationPH:obs})
-
-
-        # l = observations.shape[0]
-        # step = int(l/self.nMiniBatch)
-        # assert(self.nMiniBatch*step == l)
-        # indices = range(0,l,step)
-        # randomIndex = np.arange(l)
-        # for _ in range(self.epoch):
-        #     # np.random.shuffle(randomIndex)
-        #     for start in indices:
-        #         end = start+step
-        #         ind = randomIndex[start:end].astype(np.int32)
-        #         observationsB = observations[ind]
-        #         actionsB = actions[ind]
-        #         actionProbOldB = actionProbOld[ind]
-        #         advantageB = advantage[ind]
-        #         disRewardsB = disRewards[ind]
-        #         feedDict = {self.observationPH: observationsB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB}
-        #         lClip, lVF, entropy, _ ,_ = self.sess.run([self.lCLIP, self.lVF, self.entropy, self.trainA, self.trainC],feed_dict = feedDict)
-        # return lClip, lVF, entropy
+            np.random.shuffle(randomIndex)
+            for start in indices:
+                end = start+step
+                ind = randomIndex[start:end].astype(np.int32)
+                observationsB = observations[ind]
+                actionsB = actions[ind]
+                actionProbOldB = actionProbOld[ind]
+                advantageB = advantage[ind]
+                disRewardsB = disRewards[ind]
+                feedDict = {self.observationPH: observationsB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB}
+                lClip, lVF, entropy, _ ,_ = self.sess.run([self.lCLIP, self.lVF, self.entropy, self.trainA, self.trainC],feed_dict = feedDict)
+        return lClip, lVF, entropy
 
     def saveNetwork(self,name):
         savePath = self.saver.save(self.sess,name)
         print("Model saved in path: %s" % savePath)
 
 ## other definitions
+def advantageDR(rewards, values, gamma):
 
-def advantageDR(rewards, gamma, v_s):
-
-    disRewards = []
-    for r in rewards[::-1]:
-        v_s = r[0]+gamma*v_s
-        disRewards.append(v_s)
-    disRewards.reverse()
-    return np.asarray(disRewards,dtype=np.float32).reshape(-1,1)
-    # v_s = 4
-    # ## using discounted rewards to get advantage
-    # disRewards = []
-    # for r in rewards[::-1]:
-    #     v_s = r+gamma*v_s
-    #     disRewards.append(v_s)
-    # return disRewards.reverse()
-    # disRewards = np.asarray(rewards,dtype=np.float32)
-    # disRewards[0] = values[-1]
-    # for index in range(1,len(rewards)):
-    #     disRewards[index] = disRewards[index-1]*gamma + rewards[index]
-    # return disRewards[::-1] - values, disRewards[::-1]
+    ## using discounted rewards to get advantage
+    disRewards = np.asarray(rewards,dtype=np.float32)
+    disRewards[0] = values[-1]
+    for index in range(1,len(rewards)):
+        disRewards[index] = disRewards[index-1]*gamma + rewards[index]
+    return disRewards[::-1] - values, disRewards[::-1]
 
 def advantageEST(rewards, values, gamma, lamda):
 
@@ -308,6 +249,3 @@ def advantageEST(rewards, values, gamma, lamda):
         delta = rewards[index] + gamma * values[index+1] -values[index]
         advantage[index] = lastAdv = delta + gamma * lamda * lastAdv
     return advantage.reshape((-1,1)), (advantage+values).reshape((-1,1))
-
-# print(advantageDR(np.asarray([2,5,4,5,2,3,1,6],dtype=np.float32).reshape((-1,1)),0.9,4))
-# print(advantageEST([2,5,4,5,2,3,1,6],[4,4,4,4,4,4,4,4],0.9,1))
