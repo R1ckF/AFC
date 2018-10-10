@@ -19,10 +19,10 @@ def parse_args():
         parser.add_argument('--resultsPath', default=None)
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
-        parser.add_argument('--numSteps', default=200000, type=int)
+        parser.add_argument('--numSteps', default=40, type=int)
         parser.add_argument('--networkOption', default='mlp', type=str, help = 'Choose small or large or mlp')
         parser.add_argument('--activation', default=tf.nn.relu)
-        parser.add_argument('--nsteps', default=32, type=int, help='number of environment steps between training')
+        parser.add_argument('--nsteps', default=10, type=int, help='number of environment steps between training')
         parser.add_argument('--gamma', default=0.9, help='discounted reward factor')
         parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
         parser.add_argument('--epochs', default = 10, type=int, help= 'Number of epochs for training networks')
@@ -65,7 +65,8 @@ assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
 # print(dr)
 
 #create environement
-env = gym.make(args.env).unwrapped
+env = gym.make(args.env)
+env.seed(0)
 # env = gym.wrappers.Monitor(env, args.resultsPath, force=True)
 # env = adjustFrame(env)
 # env = stackFrames(env, args.stacks)
@@ -102,49 +103,64 @@ tStart = time.time()
 tprev = 0
 latestReward = 0
 for timestep in range(args.numSteps):
+    print("t: ", timestep)
     if render:
         env.render()
     # if i %100 ==0:
     #     plt.imshow(obs.reshape((84,84*4),order='F'))
     #     plt.show()
     # obs = obs.reshape((1,84,84,4))
+
     obs = obs.reshape(1,3)
+    obs = np.array([-1.,0.,1.]).reshape(-1,3)
     Observations.append(obs)
     # print(obs.shape)
     # tt = time.time()
-    action = Agent.step(obs,writer,timestep)
+    action, mu,sigma,l1 = Agent.step(obs,writer,timestep)
+    print("action: %0.2f, mu: %0.2f, sigma: %0.2f" %(action,mu,sigma))
+    # print("l1: ", l1)
     # print("agent step: ",time.time()-tt)
     # print(action, value, actionLogProb)
     # ActionLogProb.append(actionLogProb)
+    action = np.float32(1)
     Actions.append(action)
     # Values.append(value)
     # tt = time.time()
-    obs, reward, done, info = env.step(action)
+    obs, reward, done, info = env.step(np.array(action).reshape(-1,1))
+    print("obs: ",obs)
+    print(reward)
+    print(Agent.get_Value(obs.reshape(1,3)))
     # print("env step: ", time.time()-tt)
     Rewards.append((reward+8)/8)
     EpisodeRewards.append(reward)
-    if (timestep+1) % 200 ==0:
+    if (timestep+1) % 30 ==0:
         done = True
         # print("ep aborted")
+
+
+    if (timestep+1) % args.nsteps == 0:
+        # print("Training")
+        # traintime = time.time()
+        Rewards, Observations, Actions = np.asarray(Rewards,dtype=np.float32).reshape((-1,1)),  np.asarray(Observations,dtype=np.float32).squeeze(),  np.asarray(Actions,dtype=np.float32).reshape((-1,1))
+        # Advantage = (Advantage - Advantage.mean()) / (Advantage.std() + 1e-8)
+        value = Agent.get_Value(obs.reshape(1,3))
+        print("v: ", value)
+        DiscRewards = advantageDR(Rewards,args.gamma,value)
+        print(Observations)
+        print(Actions)
+        print(DiscRewards)
+        aLoss, cLoss = Agent.trainNetwork(Observations, Actions, DiscRewards)
+        Rewards, Actions, Observations, Values, ActionLogProb = [],[],[],[],[]
+        # print("Train time: ", time.time()-traintime)
+
     if done:
-        # print("Done")
+        print("Done")
         tnow = time.time()
         obs = env.reset()
         latestReward = sum(EpisodeRewards)
         writeResults("{}, {}, {}".format(latestReward, timestep-tprev, tnow-tStart),'1')
         tprev = timestep
         EpisodeRewards = []
-
-    if (timestep+1) % args.nsteps == 0:
-        # print("Training")
-        # traintime = time.time()
-        Rewards, Observations, Actions = np.asarray(Rewards,dtype=np.float32).reshape((-1,1)),  np.asarray(Observations,dtype=np.float32).squeeze(),  np.asarray(Actions,dtype=np.int32).reshape((-1,1))
-        # Advantage = (Advantage - Advantage.mean()) / (Advantage.std() + 1e-8)
-        value = Agent.get_Value(obs.reshape(1,3))
-        DiscRewards = advantageDR(Rewards,args.gamma,value)
-        aLoss, cLoss = Agent.trainNetwork(Observations, Actions, DiscRewards)
-        Rewards, Actions, Observations, Values, ActionLogProb = [],[],[],[],[]
-        # print("Train time: ", time.time()-traintime)
 
     if (timestep+1) % args.saveInterval == 0:
         savePath = os.path.join(args.resultsPath,"checkpoints"+str(timestep)+".ckpt")
@@ -162,7 +178,7 @@ for timestep in range(args.numSteps):
 
 ttime = time.time()-tStart
 print("fps: ", args.numSteps/(ttime))
-Agent.saveNetwork(os.path.join(args.resultsPath,"finalModel","final.ckpt"))
+# Agent.saveNetwork(os.path.join(args.resultsPath,"finalModel","final.ckpt"))
 
 writer.close()
 sess.close()

@@ -82,11 +82,11 @@ class network:
             if isinstance(self.env.action_space,gym.spaces.Box):
                 print("Continous Control")
                 network_args['activation'] = tf.nn.tanh
-                mu = 2 * self.fc(self.networkOutput,1, name='mu',**network_args)
+                self.mu = 2 * self.fc(self.networkOutput,1, name='mu',**network_args)
                 network_args['activation'] = tf.nn.softplus
-                std = self.fc(self.networkOutput,1,name='sigma',**network_args)
+                self.std = self.fc(self.networkOutput,1,name='sigma',**network_args)
                 network_args['activation'] = tf.nn.relu
-                self.dist = tf.distributions.Normal(loc = mu, scale = std)
+                self.dist = tf.distributions.Normal(loc = self.mu, scale = self.std)
                 self.params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=tf.get_variable_scope().name)
             elif isinstance(env.action_space, gym.spaces.Discrete):
                 outputShape = env.action_space.n
@@ -162,7 +162,8 @@ class agent:
                 self.critic = network(self.env, self.networkOption, self.sess)
                 self.critic.buildNetwork(self.observationPH,**network_args)
                 self.critic.createStep(**network_args)
-                self.value = self.critic.value
+                self.value1 = self.critic.value
+                self.value = tf.Print(self.value1,[self.value1])
                 self.advantage = self.disRewardsPH - self.value
                 self.cLoss = tf.reduce_mean(tf.square(self.advantage))
                 self.ctrain = tf.train.AdamOptimizer(learning_rate = 0.0002).minimize(self.cLoss)
@@ -228,17 +229,17 @@ class agent:
         # run_metadata = tf.RunMetadata()
         # tt = time.time()
 
-        action = self.sess.run([self.action], feed_dict= {self.observationPH : observation})[0]#, options=run_options, run_metadata=run_metadata)
+        action, mu, sigma, l1 = self.sess.run([self.action, self.actor.mu, self.actor.std, self.actor.networkOutput], feed_dict= {self.observationPH : observation})#, options=run_options, run_metadata=run_metadata)
         # print("sess time: ", time.time()-tt)
         # writer.add_run_metadata(run_metadata, 'step%d' % i)
 
-        return np.clip(action, -2, 2)
+        return np.clip(action, -2, 2), mu, sigma, l1
 
     def trainNetwork(self, observations, actions, disRewards):
         self.sess.run(self.updateActorOld)
         adv = self.sess.run(self.advantage, {self.observationPH: observations, self.disRewardsPH: disRewards})
         # adv = (adv - adv.mean()) / (adv.std() + 1e-6)
-
+        print(adv)
         for _ in range(self.epoch):
             aLoss, _ = self.sess.run([self.aLoss, self.atrain], {self.observationPH: observations, self.actionsPH: actions, self.advantagePH: adv})
 
