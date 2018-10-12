@@ -57,7 +57,7 @@ class network:
         print(outputFC.shape)
         return outputFC
 
-    def mlp(self, observationPH, numNodes=100, **network_args):
+    def mlp(self, observationPH, numNodes=200, **network_args):
         print(observationPH.shape)
         outputFC1 = self.fc(observationPH, numNodes, name = 'FC1', **network_args)
         print(outputFC1.shape)
