@@ -19,18 +19,18 @@ def parse_args():
         parser.add_argument('--resultsPath', default=None)
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
-        parser.add_argument('--numSteps', default=40, type=int)
+        parser.add_argument('--numSteps', default=200*500, type=int)
         parser.add_argument('--networkOption', default='mlp', type=str, help = 'Choose small or large or mlp')
         parser.add_argument('--activation', default=tf.nn.relu)
-        parser.add_argument('--nsteps', default=10, type=int, help='number of environment steps between training')
+        parser.add_argument('--nsteps', default=64, type=int, help='number of environment steps between training')
         parser.add_argument('--gamma', default=0.9, help='discounted reward factor')
         parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
-        parser.add_argument('--epochs', default = 10, type=int, help= 'Number of epochs for training networks')
-        parser.add_argument('--learningRate', default = 0.0001, help= 'Starting value for the learning rate for training networks.')
+        parser.add_argument('--epochs', default = 4, type=int, help= 'Number of epochs for training networks')
+        parser.add_argument('--learningRate', default = 1e-4, help= 'Starting value for the learning rate for training networks.')
         parser.add_argument('--liverender', default = False, action='store_true')
-        parser.add_argument('--nMiniBatch', default = 1, type=int, help = 'number of minibatches per trainingepoch')
+        parser.add_argument('--nMiniBatch', default = 2, type=int, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
-        parser.add_argument('--saveInterval', default = 100000, type=int, help = 'save current network to disk')
+        parser.add_argument('--saveInterval', default = 10000000, type=int, help = 'save current network to disk')
         parser.add_argument('--logInterval', default = 200, type=int, help = 'print Log message')
         parser.add_argument('--cnnStyle', default = 'copy', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
         parser.add_argument('--lamda', default = 0.95, help = 'GAE from PPO article')
@@ -48,7 +48,7 @@ print(args)
 network_args = {}
 for item in ['networkOption','activation','epsilon', 'learningRate', 'epochs', 'nMiniBatch','loadPath','cnnStyle', 'c1','c2']:
     network_args[item]=args.__dict__[item]
-network_args['kernel_initializer'] = tf.ones_initializer()
+# network_args['kernel_initializer'] = tf.ones_initializer()
 render = args.liverender
 assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
 # rewards = np.ones(10)
@@ -89,7 +89,8 @@ EpisodeRewards = []
 Actions = []
 Observations = []
 Values = []
-ActionLogProb = []
+allEpR = []
+
 def writeResults(message,file):
     resultsFile = open(os.path.join(args.resultsPath,file+".results.csv"),'a')
     resultsFile.write(message+'\n')
@@ -103,7 +104,7 @@ tStart = time.time()
 tprev = 0
 latestReward = 0
 for timestep in range(args.numSteps):
-    print("t: ", timestep)
+    # print("t: ", timestep)
     if render:
         env.render()
     # if i %100 ==0:
@@ -112,43 +113,45 @@ for timestep in range(args.numSteps):
     # obs = obs.reshape((1,84,84,4))
 
     obs = obs.reshape(1,3)
-    obs = np.array([-1.,0.,1.]).reshape(-1,3)
+    # obs = np.array([-1.,0.,1.]).reshape(-1,3)
     Observations.append(obs)
     # print(obs.shape)
-    # tt = time.time()
+    tt = time.time()
     action, mu,sigma,l1 = Agent.step(obs,writer,timestep)
-    print("action: %0.2f, mu: %0.2f, sigma: %0.2f" %(action,mu,sigma))
+    # print("action: %0.2f, mu: %0.2f, sigma: %0.2f" %(action,mu,sigma))
     # print("l1: ", l1)
     # print("agent step: ",time.time()-tt)
     # print(action, value, actionLogProb)
     # ActionLogProb.append(actionLogProb)
-    action = np.float32(1)
+    # action = np.float32(1)
     Actions.append(action)
-    # Values.append(value)
-    # tt = time.time()
+    Values.append(Agent.get_Value(obs.reshape(1,3)))
+    tt = time.time()
     obs, reward, done, info = env.step(np.array(action).reshape(-1,1))
-    print("obs: ",obs)
-    print(reward)
-    print(Agent.get_Value(obs.reshape(1,3)))
+    # print("obs: ",obs)
+    # print(reward)
+    # print(Agent.get_Value(obs.reshape(1,3)))
     # print("env step: ", time.time()-tt)
     Rewards.append((reward+8)/8)
     EpisodeRewards.append(reward)
-    if (timestep+1) % 30 ==0:
+    if (timestep+1) % 200 ==0:
         done = True
         # print("ep aborted")
 
 
     if (timestep+1) % args.nsteps == 0:
         # print("Training")
-        # traintime = time.time()
+        traintime = time.time()
         Rewards, Observations, Actions = np.asarray(Rewards,dtype=np.float32).reshape((-1,1)),  np.asarray(Observations,dtype=np.float32).squeeze(),  np.asarray(Actions,dtype=np.float32).reshape((-1,1))
         # Advantage = (Advantage - Advantage.mean()) / (Advantage.std() + 1e-8)
         value = Agent.get_Value(obs.reshape(1,3))
-        print("v: ", value)
+        # print("v: ", value)
         DiscRewards = advantageDR(Rewards,args.gamma,value)
-        print(Observations)
-        print(Actions)
-        print(DiscRewards)
+        # print(DiscRewards)
+        # print(advantageEST(Rewards,Values,args.gamma,1))
+        # print(Observations)
+        # print(Actions)
+        # print(DiscRewards)
         aLoss, cLoss = Agent.trainNetwork(Observations, Actions, DiscRewards)
         Rewards, Actions, Observations, Values, ActionLogProb = [],[],[],[],[]
         # print("Train time: ", time.time()-traintime)
@@ -157,10 +160,14 @@ for timestep in range(args.numSteps):
         print("Done")
         tnow = time.time()
         obs = env.reset()
-        latestReward = sum(EpisodeRewards)
+        latestReward = float(sum(EpisodeRewards))
         writeResults("{}, {}, {}".format(latestReward, timestep-tprev, tnow-tStart),'1')
         tprev = timestep
         EpisodeRewards = []
+        if len(allEpR)==0:
+            allEpR.append(latestReward)
+        else:
+            allEpR.append(latestReward*0.1+allEpR[-1]*0.9)
 
     if (timestep+1) % args.saveInterval == 0:
         savePath = os.path.join(args.resultsPath,"checkpoints"+str(timestep)+".ckpt")
@@ -183,3 +190,7 @@ print("fps: ", args.numSteps/(ttime))
 writer.close()
 sess.close()
 env.close()
+plt.plot(np.arange(len(allEpR)),allEpR)
+plt.xlabel('Episode')
+plt.ylabel('Moving average')
+plt.show()
