@@ -15,13 +15,13 @@ from tensorflow.python import debug as tf_debug
 ## parsing function for easy running
 def parse_args():
         parser = argparse.ArgumentParser(description='Plot results of Simulations')
-        parser.add_argument('--env', default="Pendulum-v0")#"PongNoFrameskip-v4")
+        parser.add_argument('--env', default="CartPole-v0")#"PongNoFrameskip-v4")
         parser.add_argument('--resultsPath', default=None)
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
-        parser.add_argument('--numSteps', default=200*500, type=int)
+        parser.add_argument('--numSteps', default=150000, type=int)
         parser.add_argument('--networkOption', default='mlp', type=str, help = 'Choose small or large or mlp')
-        parser.add_argument('--activation', default=tf.nn.relu)
+        parser.add_argument('--activation', default=tf.nn.tanh)
         parser.add_argument('--nsteps', default=64, type=int, help='number of environment steps between training')
         parser.add_argument('--gamma', default=0.9, help='discounted reward factor')
         parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
