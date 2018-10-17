@@ -95,7 +95,9 @@ class network:
             elif isinstance(self.env.action_space, gym.spaces.Discrete):
                 print("Discrete control")
                 self.outputShape = self.env.action_space.n
-                self.actionOutput = self.fc(self.networkOutput,self.outputShape, activation=None)
+                old = network_args['activation']
+                network_args['activation'] = None
+                self.actionOutput = self.fc(self.networkOutput,self.outputShape, **network_args)
                 print("actionspace output: ", self.actionOutput.shape)
                 randomizer = tf.random_uniform(tf.shape(self.actionOutput), dtype=tf.float32)
                 print("randomizer: ", randomizer.shape)
@@ -103,16 +105,20 @@ class network:
                 print("action shape: ", self.action.shape)
                 self.logProb = tf.reshape(self.logP(self.action),[-1,1])
                 print("logprob shape: ", self.logProb.shape)
+                network_args['activation'] = old
 
         elif tf.get_variable_scope().name=='critic':
-            self.value = self.fc(self.networkOutput, 1, name='Value', activation=None)
+            old = network_args['activation']
+            network_args['activation'] = None
+            self.value = self.fc(self.networkOutput, 1, name='Value', **network_args)
             print("Value shape: ", self.value.shape)
+            network_args['activation'] = old
         else:
             raise ValueError('no scope detected')
 
     def logP(self, action):
         one_hot_actions = tf.one_hot(action,self.outputShape)
-        return tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.actionOutput,labels=one_hot_actions)
+        return -tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.actionOutput,labels=one_hot_actions)
 
 
 
@@ -183,14 +189,14 @@ class agent:
         with tf.variable_scope('lossFunction'):
             actionsProbNew = tf.reshape(self.logP(self.actionsPH),[-1,1])
             print("NewProb: ", actionsProbNew.shape)
-            ratio = tf.exp(self.actionsProbOldPH - actionsProbNew)
+            ratio = tf.exp(actionsProbNew - self.actionsProbOldPH)
             print("ratio: ", ratio.shape)
             policyLoss= ratio * self.advantagePH
             print("Policylos: ", policyLoss.shape)
             clippedPolicyLoss= self.advantagePH * tf.clip_by_value(ratio,(1-self.epsilon),(1+self.epsilon))
             print("clippedPolicyLoss: ", clippedPolicyLoss.shape)
-            self.pLoss2 = -tf.reduce_mean(tf.minimum(policyLoss, clippedPolicyLoss))
-            print("pLoss: ", self.pLoss2.shape)
+            self.pLoss = -tf.reduce_mean(tf.minimum(policyLoss, clippedPolicyLoss))
+            print("pLoss: ", self.pLoss.shape)
 
             value = self.value
             print("value: ", self.value.shape)
@@ -200,7 +206,7 @@ class agent:
             clippedValueLoss = tf.square(clippedValue - self.disRewardsPH)
             self.vLoss = 0.5 * tf.reduce_mean(tf.maximum(valueLoss, clippedValueLoss))
             print("vLoss: ", self.vLoss.shape)
-            self.pLoss = tf.Print(self.pLoss2,[value, self.disRewardsPH, self.oldValuePredPH])
+            # self.pLoss = tf.Print(self.pLoss,[value, self.disRewardsPH, self.oldValuePredPH])
             self.loss = self.pLoss + c1 * self.vLoss
             print("loss: ",self.loss.shape)
 
@@ -224,11 +230,11 @@ class agent:
         # run_metadata = tf.RunMetadata()
         # tt = time.time()
 
-        action, logProb, value = self.sess.run([self.action,self.logProb, self.value], feed_dict= {self.observationPH : observation})#, options=run_options, run_metadata=run_metadata)
+        action, logProb, value, logits = self.sess.run([self.action,self.logProb, self.value, self.actor.actionOutput], feed_dict= {self.observationPH : observation})#, options=run_options, run_metadata=run_metadata)
         # print("sess time: ", time.time()-tt)
         # writer.add_run_metadata(run_metadata, 'step%d' % i)
 
-        return action.squeeze(), logProb.squeeze(), value.squeeze()
+        return action.squeeze(), logProb.squeeze(), value.squeeze(), logits
 
 
     def trainNetwork(self, observations, actions, disRewards, values, actionProbOld, advantage,lr):
@@ -238,7 +244,8 @@ class agent:
         indices = range(0,lenght,step)
         randomIndex = np.arange(lenght)
         for _ in range(self.epoch):
-            # np.random.shuffle(randomIndex)
+            np.random.seed(0)
+            np.random.shuffle(randomIndex)
             for start in indices:
                 end = start+step
                 ind = randomIndex[start:end].astype(np.int32)
@@ -248,7 +255,9 @@ class agent:
                 advantageB = advantage[ind]
                 disRewardsB = disRewards[ind]
                 valuesB = values[ind]
+                advantageB = (advantageB - advantageB.mean()) / (advantageB.std() + 1e-8)
                 feedDict = {self.observationPH: observationsB, self.oldValuePredPH:valuesB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB, self.learningRatePH: lr}
+                # print(feedDict)
                 pLoss, vLoss,  _ = self.sess.run([self.pLoss, self.vLoss, self.train], feedDict)
 
         return pLoss, vLoss
