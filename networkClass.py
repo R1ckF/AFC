@@ -101,9 +101,9 @@ class network:
                 print("actionspace output: ", self.actionOutput.shape)
                 randomizer = tf.random_uniform(tf.shape(self.actionOutput), dtype=tf.float32)
                 print("randomizer: ", randomizer.shape)
-                self.action = tf.reshape(tf.argmax(self.actionOutput - tf.log(-tf.log(randomizer)), axis=1),[-1,1])
+                self.action = tf.argmax(self.actionOutput- tf.log(-tf.log(randomizer)), axis=1)
                 print("action shape: ", self.action.shape)
-                self.logProb = tf.reshape(self.logP(self.action),[-1,1])
+                self.logProb = self.logP(self.action)
                 print("logprob shape: ", self.logProb.shape)
                 network_args['activation'] = old
 
@@ -118,7 +118,7 @@ class network:
 
     def logP(self, action):
         one_hot_actions = tf.one_hot(action,self.outputShape)
-        return -tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.actionOutput,labels=one_hot_actions)
+        return tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.actionOutput,labels=one_hot_actions)
 
 
 
@@ -132,7 +132,7 @@ class agent:
     """
 
     def __init__(self, env, sess, networkOption='small',epsilon = 0.2, epochs = 3, nMiniBatch = 2, loadPath = None,
-                    cnnStyle = 'copy', c1=1, c2 = 0.01, **network_args):
+                    cnnStyle = 'copy', c1=0.5, c2 = 0.01, **network_args):
         self.env = env
         self.sess = sess
         self.networkOption = networkOption
@@ -140,13 +140,13 @@ class agent:
         self.epoch = epochs
         self.nMiniBatch = nMiniBatch
         self.loadPath  = loadPath
-        self.shp = self.env.observation_space.shape
-        self.observationPH = tf.placeholder(tf.float32,shape=[None, self.shp[0]], name = "Observation")#,self.shp[1],self.shp[2]]
-        self.actionsPH = tf.placeholder(tf.int32,shape=[None,1],name='Actions')
-        self.actionsProbOldPH = tf.placeholder(tf.float32,shape=[None,1],name='ActionProbOld')
-        self.advantagePH = tf.placeholder(tf.float32, shape=[None,1],name='Advantage')
-        self.disRewardsPH = tf.placeholder(tf.float32, shape = [None,1], name = 'DiscountedRewards')
-        self.oldValuePredPH = tf.placeholder(tf.float32, shape = [None, 1], name = 'oldValuePred')
+        self.shp = list(self.env.observation_space.shape)
+        self.observationPH = tf.placeholder(tf.float32,shape=[None]+self.shp, name = "Observation")#,self.shp[1],self.shp[2]]
+        self.actionsPH = tf.placeholder(tf.int32,shape=[None],name='Actions')
+        self.actionsProbOldPH = tf.placeholder(tf.float32,shape=[None],name='ActionProbOld')
+        self.advantagePH = tf.placeholder(tf.float32, shape=[None],name='Advantage')
+        self.disRewardsPH = tf.placeholder(tf.float32, shape = [None], name = 'DiscountedRewards')
+        self.oldValuePredPH = tf.placeholder(tf.float32, shape = [None], name = 'oldValuePred')
         self.learningRatePH = tf.placeholder(tf.float32, shape = [], name = 'LearningRate')
 
         if cnnStyle == 'copy':
@@ -187,15 +187,17 @@ class agent:
             raise ValueError('cnnStyle not recognized')
 
         with tf.variable_scope('lossFunction'):
-            actionsProbNew = tf.reshape(self.logP(self.actionsPH),[-1,1])
+            actionsProbNew = self.logP(self.actionsPH)
             print("NewProb: ", actionsProbNew.shape)
-            ratio = tf.exp(actionsProbNew - self.actionsProbOldPH)
+            ratio = tf.exp(self.actionsProbOldPH - actionsProbNew)
             print("ratio: ", ratio.shape)
             policyLoss= ratio * self.advantagePH
             print("Policylos: ", policyLoss.shape)
             clippedPolicyLoss= self.advantagePH * tf.clip_by_value(ratio,(1-self.epsilon),(1+self.epsilon))
             print("clippedPolicyLoss: ", clippedPolicyLoss.shape)
-            self.pLoss = -tf.reduce_mean(tf.minimum(policyLoss, clippedPolicyLoss))
+            min = tf.minimum(policyLoss, clippedPolicyLoss)
+            print("minShape: ", min.shape)
+            self.pLoss = -tf.reduce_mean(min)
             print("pLoss: ", self.pLoss.shape)
 
             value = self.value
@@ -207,7 +209,9 @@ class agent:
             self.vLoss = 0.5 * tf.reduce_mean(tf.maximum(valueLoss, clippedValueLoss))
             print("vLoss: ", self.vLoss.shape)
             # self.pLoss = tf.Print(self.pLoss,[value, self.disRewardsPH, self.oldValuePredPH])
+            # self.pLoss = tf.Print(self.pLoss2,[ratio, policyLoss, clippedPolicyLoss, min, self.pLoss2],summarize=10000)
             self.loss = self.pLoss + c1 * self.vLoss
+
             print("loss: ",self.loss.shape)
 
         with tf.variable_scope('trainer'):
@@ -292,15 +296,18 @@ def advantageDR(rewards, gamma, v_s):
     #     disRewards[index] = disRewards[index-1]*gamma + rewards[index]
     # return disRewards[::-1] - values, disRewards[::-1]
 
-def advantageEST(rewards, values, lastValue, gamma, lamda):
+def advantageEST(rewards, values, dones, lastValue, gamma, lamda):
 
     ## using advantage estimator from article
     advantage = np.zeros_like(rewards).astype(np.float32)
-    advantage[-1] = lastValue*gamma+rewards[-1]-values[-1]
+    advantage[-1] = lastValue*gamma * (1-dones[-1])+rewards[-1]-values[-1]
     lastAdv = advantage[-1]
+    # print(lastAdv)
     for index in reversed(range(len(rewards)-1)):
-        delta = rewards[index] + gamma * values[index+1] -values[index]
-        advantage[index] = lastAdv = delta + gamma * lamda * lastAdv
+        delta = rewards[index] + gamma * (1-dones[index])* values[index+1] -values[index]
+        # print("delta: ", delta)
+        advantage[index] = lastAdv = delta + gamma * (1-dones[index]) * lamda * lastAdv
+        # print("lastAdv: ", lastAdv)
     return advantage, (advantage+values)
 
 
