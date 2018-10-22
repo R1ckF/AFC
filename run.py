@@ -15,20 +15,20 @@ from tensorflow.python import debug as tf_debug
 ## parsing function for easy running
 def parse_args():
         parser = argparse.ArgumentParser(description='Plot results of Simulations')
-        parser.add_argument('--env', default="CartPole-v0")#PongNoFrameskip-v4")
+        parser.add_argument('--env', default="PongNoFrameskip-v4")#PongNoFrameskip-v4")
         parser.add_argument('--resultsPath', default=None)
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
-        parser.add_argument('--numSteps', default=10000, type=int)
-        parser.add_argument('--networkOption', default='mlp', type=str, help = 'Choose small or large or mlp')
-        parser.add_argument('--activation', default=tf.nn.tanh)
-        parser.add_argument('--nsteps', default=128, type=int, help='number of environment steps between training')
+        parser.add_argument('--numSteps', default=20, type=int)
+        parser.add_argument('--networkOption', default='small', type=str, help = 'Choose small or large or mlp')
+        parser.add_argument('--activation', default=tf.nn.relu)
+        parser.add_argument('--nsteps', default=10, type=int, help='number of environment steps between training')
         parser.add_argument('--gamma', default=0.99, help='discounted reward factor')
         parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
-        parser.add_argument('--epochs', default = 4, type=int, help= 'Number of epochs for training networks')
-        parser.add_argument('--learningRate', default = 3e-4, help= 'Starting value for the learning rate for training networks.')
+        parser.add_argument('--epochs', default = 1, type=int, help= 'Number of epochs for training networks')
+        parser.add_argument('--learningRate', default = lambda f : f * 2.5e-4, help= 'Starting value for the learning rate for training networks.')
         parser.add_argument('--liverender', default = False, action='store_true')
-        parser.add_argument('--nMiniBatch', default = 4, type=int, help = 'number of minibatches per trainingepoch')
+        parser.add_argument('--nMiniBatch', default = 2, type=int, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
         parser.add_argument('--saveInterval', default = 10000000, type=int, help = 'save current network to disk')
         parser.add_argument('--logInterval', default = 128, type=int, help = 'print Log message')
@@ -68,8 +68,8 @@ assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
 env = gym.make(args.env)
 env.seed(0)
 # env = gym.wrappers.Monitor(env, args.resultsPath, force=True)
-# env = adjustFrame(env)
-# env = stackFrames(env, args.stacks)
+env = adjustFrame(env)
+env = stackFrames(env, args.stacks)
 ob_shape = list(env.observation_space.shape)
 print(ob_shape)
 
@@ -109,7 +109,7 @@ tStart = time.time()
 tprev = 0
 latestReward = 0
 for timestep in range(args.numSteps):
-    # print("\n\n t: ", timestep)
+    print("\n\n t: ", timestep)
     if render:
         env.render()
     # if i %100 ==0:
@@ -118,14 +118,17 @@ for timestep in range(args.numSteps):
     # obs = obs.reshape((1,84,84,4))
 
 
-    # print("obs: ", obs)
+    print("obs: ", obs, obs.shape)
+    # if timestep%3==0:
+    #     plt.imshow(obs[0,:,:,0])
+    #     plt.show()
     # obs = np.array([-1.,0.,1.]).reshape(-1,3)
     Observations.append(obs)
     # print(obs.shape)
     tt = time.time()
     # print(obs.shape)
     action, logProb, value, logits = Agent.step(obs,writer,timestep)
-    # print("action, value, logprob,logits: ", action,value, logProb, logits)
+    print("action, value, logprob,logits: ", action,value, logProb, logits)
     # print("action: %0.2f, mu: %0.2f, sigma: %0.2f" %(action,mu,sigma))
     # print("l1: ", l1)
     # print("agent step: ",time.time()-tt)
@@ -157,6 +160,7 @@ for timestep in range(args.numSteps):
 
     if (timestep+1) % args.nsteps == 0:
         # print("Training")
+        lr = args.learningRate(1 - timestep/args.numSteps)
         traintime = time.time()
         Dones, Rewards, Observations, Actions, Values, LogProb = np.asarray(Dones), np.asarray(Rewards,dtype=np.float32),  np.asarray(Observations,dtype=np.float32).reshape([args.nsteps]+ob_shape),  np.asarray(Actions,dtype=np.int32),  np.asarray(Values,dtype=np.float32),  np.asarray(LogProb,dtype=np.float32)
         # Advantage = (Advantage - Advantage.mean()) / (Advantage.std() + 1e-8)
@@ -173,7 +177,7 @@ for timestep in range(args.numSteps):
         # print(Actions)
         # print(DiscRewards)
         # print(DiscRewards, Values, value)
-        pLoss, vLoss = Agent.trainNetwork(Observations, Actions, DiscRewards, Values, LogProb, Advantage, args.learningRate)
+        pLoss, vLoss = Agent.trainNetwork(Observations, Actions, DiscRewards, Values, LogProb, Advantage, lr)
         Rewards, Actions, Observations, Values, LogProb, Dones = [],[],[],[],[],[]
         # print("Train time: ", time.time()-traintime)
 

@@ -80,7 +80,7 @@ class network:
             raise ValueError('Invalid network option')
 
     def createStep(self, **network_args):
-        if tf.get_variable_scope().name=='actor' or tf.get_variable_scope().name=='actorOld':
+        if tf.get_variable_scope().name=='actor':
             if isinstance(self.env.action_space,gym.spaces.Box):
                 print("Continous Control")
                 oldActivation = network_args['activation']
@@ -101,7 +101,8 @@ class network:
                 print("actionspace output: ", self.actionOutput.shape)
                 randomizer = tf.random_uniform(tf.shape(self.actionOutput), dtype=tf.float32)
                 print("randomizer: ", randomizer.shape)
-                self.action = tf.argmax(self.actionOutput- tf.log(-tf.log(randomizer)), axis=1)
+                self.action = tf.argmax(self.actionOutput, axis=1)#- tf.log(-tf.log(randomizer)), axis=1)
+                # self.action = tf.argmax(tf.nn.softmax(self.actionOutput), axis=1)
                 print("action shape: ", self.action.shape)
                 self.logProb = self.logP(self.action)
                 print("logprob shape: ", self.logProb.shape)
@@ -189,7 +190,7 @@ class agent:
         with tf.variable_scope('lossFunction'):
             actionsProbNew = self.logP(self.actionsPH)
             print("NewProb: ", actionsProbNew.shape)
-            ratio = tf.exp(self.actionsProbOldPH - actionsProbNew)
+            ratio = tf.exp(self.actionsProbOldPH - actionsProbNew)  #negative logprop is given by tensorflow thats why they are switched (new/old)
             print("ratio: ", ratio.shape)
             policyLoss= ratio * self.advantagePH
             print("Policylos: ", policyLoss.shape)
@@ -197,8 +198,8 @@ class agent:
             print("clippedPolicyLoss: ", clippedPolicyLoss.shape)
             min = tf.minimum(policyLoss, clippedPolicyLoss)
             print("minShape: ", min.shape)
-            self.pLoss = -tf.reduce_mean(min)
-            print("pLoss: ", self.pLoss.shape)
+            self.pLoss2 = -tf.reduce_mean(min)
+            print("pLoss: ", self.pLoss2.shape)
 
             value = self.value
             print("value: ", self.value.shape)
@@ -209,7 +210,7 @@ class agent:
             self.vLoss = 0.5 * tf.reduce_mean(tf.maximum(valueLoss, clippedValueLoss))
             print("vLoss: ", self.vLoss.shape)
             # self.pLoss = tf.Print(self.pLoss,[value, self.disRewardsPH, self.oldValuePredPH])
-            # self.pLoss = tf.Print(self.pLoss2,[ratio, policyLoss, clippedPolicyLoss, min, self.pLoss2],summarize=10000)
+            self.pLoss = tf.Print(self.pLoss2,[ratio, policyLoss, clippedPolicyLoss, min, self.pLoss2],summarize=10000)
             self.loss = self.pLoss + c1 * self.vLoss
 
             print("loss: ",self.loss.shape)
@@ -238,7 +239,7 @@ class agent:
         # print("sess time: ", time.time()-tt)
         # writer.add_run_metadata(run_metadata, 'step%d' % i)
 
-        return action.squeeze(), logProb.squeeze(), value.squeeze(), logits
+        return  action.squeeze(), logProb.squeeze(), value.squeeze(), logits
 
 
     def trainNetwork(self, observations, actions, disRewards, values, actionProbOld, advantage,lr):
@@ -261,7 +262,7 @@ class agent:
                 valuesB = values[ind]
                 advantageB = (advantageB - advantageB.mean()) / (advantageB.std() + 1e-8)
                 feedDict = {self.observationPH: observationsB, self.oldValuePredPH:valuesB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB, self.learningRatePH: lr}
-                # print(feedDict)
+                print(feedDict)
                 pLoss, vLoss,  _ = self.sess.run([self.pLoss, self.vLoss, self.train], feedDict)
 
         return pLoss, vLoss
