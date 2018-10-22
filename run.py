@@ -55,9 +55,9 @@ assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
 #create environement
 env = gym.make(args.env)
 # env.seed(0)
-# env = gym.wrappers.Monitor(env, args.resultsPath, force=True)
-# env = adjustFrame(env)
-# env = stackFrames(env, args.stacks)
+env = gym.wrappers.Monitor(env, args.resultsPath, force=True, video_callable=lambda episode_id: episode_id%50==0)
+env = adjustFrame(env)
+env = stackFrames(env, args.stacks)
 ob_shape = list(env.observation_space.shape)
 print(ob_shape)
 
@@ -156,7 +156,7 @@ Agent.saveNetwork(os.path.join(args.resultsPath,"finalModel","final.ckpt"))
 
 
 sess.close()
-env.close()
+env.env.env.env.close()
 plt.plot(np.arange(len(allEpR)),allEpR)
 plt.xlabel('Episode')
 plt.ylabel('Moving average')
