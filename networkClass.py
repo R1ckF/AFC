@@ -14,7 +14,6 @@ class network:
     def __init__(self,env, networkOption, sess):
         self.env = env
         self.networkOption = networkOption
-        # self.outputShape = self.env.action_space.n
 
         ## function that creates a convolution layers
     def conv(self, input, outputDepth, kernelsize, stride, padding="valid", name = 'Conv', **network_args):
@@ -80,7 +79,7 @@ class network:
             raise ValueError('Invalid network option')
 
     def createStep(self, **network_args):
-        if tf.get_variable_scope().name=='actor' or tf.get_variable_scope().name=='actorOld':
+        if tf.get_variable_scope().name=='actor':
             if isinstance(self.env.action_space,gym.spaces.Box):
                 print("Continous Control")
                 oldActivation = network_args['activation']
@@ -102,6 +101,7 @@ class network:
                 randomizer = tf.random_uniform(tf.shape(self.actionOutput), dtype=tf.float32)
                 print("randomizer: ", randomizer.shape)
                 self.action = tf.argmax(self.actionOutput- tf.log(-tf.log(randomizer)), axis=1)
+                # self.action = tf.argmax(tf.nn.softmax(self.actionOutput), axis=1)
                 print("action shape: ", self.action.shape)
                 self.logProb = self.logP(self.action)
                 print("logprob shape: ", self.logProb.shape)
@@ -121,13 +121,9 @@ class network:
         return tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.actionOutput,labels=one_hot_actions)
 
 
-
-
-
-
 class agent:
     """
-    Provides an agent model that is used for to create networks and determining actions based on the observations
+    Provides an agent model that is used to create networks and determining actions based on the observations
     Also provides training functionality for the networks
     """
 
@@ -166,8 +162,6 @@ class agent:
                 self.critic.createStep(**network_args)
                 self.value = self.critic.value
 
-
-
         elif cnnStyle == 'shared':
             with tf.variable_scope('actor'):
                 network_args['trainable']=True
@@ -189,7 +183,7 @@ class agent:
         with tf.variable_scope('lossFunction'):
             actionsProbNew = self.logP(self.actionsPH)
             print("NewProb: ", actionsProbNew.shape)
-            ratio = tf.exp(self.actionsProbOldPH - actionsProbNew)
+            ratio = tf.exp(self.actionsProbOldPH - actionsProbNew)  #negative logprop is given by tensorflow thats why they are switched (new/old)
             print("ratio: ", ratio.shape)
             policyLoss= ratio * self.advantagePH
             print("Policylos: ", policyLoss.shape)
@@ -208,8 +202,6 @@ class agent:
             clippedValueLoss = tf.square(clippedValue - self.disRewardsPH)
             self.vLoss = 0.5 * tf.reduce_mean(tf.maximum(valueLoss, clippedValueLoss))
             print("vLoss: ", self.vLoss.shape)
-            # self.pLoss = tf.Print(self.pLoss,[value, self.disRewardsPH, self.oldValuePredPH])
-            # self.pLoss = tf.Print(self.pLoss2,[ratio, policyLoss, clippedPolicyLoss, min, self.pLoss2],summarize=10000)
             self.loss = self.pLoss + c1 * self.vLoss
 
             print("loss: ",self.loss.shape)
@@ -226,19 +218,9 @@ class agent:
         else:
             self.sess.run(tf.global_variables_initializer())
 
-    def step(self, observation,writer,i):
-
-        # self.action = tf.Print(self.action2, [self.action2, self.dist.loc,self.dist.scale])
-
-        # run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-        # run_metadata = tf.RunMetadata()
-        # tt = time.time()
-
-        action, logProb, value, logits = self.sess.run([self.action,self.logProb, self.value, self.actor.actionOutput], feed_dict= {self.observationPH : observation})#, options=run_options, run_metadata=run_metadata)
-        # print("sess time: ", time.time()-tt)
-        # writer.add_run_metadata(run_metadata, 'step%d' % i)
-
-        return action.squeeze(), logProb.squeeze(), value.squeeze(), logits
+    def step(self, observation):
+        action, logProb, value = self.sess.run([self.action,self.logProb, self.value], feed_dict= {self.observationPH : observation})
+        return  action.squeeze(), logProb.squeeze(), value.squeeze()
 
 
     def trainNetwork(self, observations, actions, disRewards, values, actionProbOld, advantage,lr):
@@ -248,7 +230,6 @@ class agent:
         indices = range(0,lenght,step)
         randomIndex = np.arange(lenght)
         for _ in range(self.epoch):
-            np.random.seed(0)
             np.random.shuffle(randomIndex)
             for start in indices:
                 end = start+step
@@ -261,7 +242,6 @@ class agent:
                 valuesB = values[ind]
                 advantageB = (advantageB - advantageB.mean()) / (advantageB.std() + 1e-8)
                 feedDict = {self.observationPH: observationsB, self.oldValuePredPH:valuesB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB, self.learningRatePH: lr}
-                # print(feedDict)
                 pLoss, vLoss,  _ = self.sess.run([self.pLoss, self.vLoss, self.train], feedDict)
 
         return pLoss, vLoss
@@ -273,28 +253,9 @@ class agent:
         savePath = self.saver.save(self.sess,name)
         print("Model saved in path: %s" % savePath)
 
+
+
 ## other definitions
-
-def advantageDR(rewards, gamma, v_s):
-
-    disRewards = []
-    for r in rewards[::-1]:
-        v_s = r[0]+gamma*v_s
-        disRewards.append(v_s)
-    disRewards.reverse()
-    return np.asarray(disRewards,dtype=np.float32).reshape(-1,1)
-    # v_s = 4
-    # ## using discounted rewards to get advantage
-    # disRewards = []
-    # for r in rewards[::-1]:
-    #     v_s = r+gamma*v_s
-    #     disRewards.append(v_s)
-    # return disRewards.reverse()
-    # disRewards = np.asarray(rewards,dtype=np.float32)
-    # disRewards[0] = values[-1]
-    # for index in range(1,len(rewards)):
-    #     disRewards[index] = disRewards[index-1]*gamma + rewards[index]
-    # return disRewards[::-1] - values, disRewards[::-1]
 
 def advantageEST(rewards, values, dones, lastValue, gamma, lamda):
 
@@ -302,33 +263,7 @@ def advantageEST(rewards, values, dones, lastValue, gamma, lamda):
     advantage = np.zeros_like(rewards).astype(np.float32)
     advantage[-1] = lastValue*gamma * (1-dones[-1])+rewards[-1]-values[-1]
     lastAdv = advantage[-1]
-    # print(lastAdv)
     for index in reversed(range(len(rewards)-1)):
         delta = rewards[index] + gamma * (1-dones[index])* values[index+1] -values[index]
-        # print("delta: ", delta)
         advantage[index] = lastAdv = delta + gamma * (1-dones[index]) * lamda * lastAdv
-        # print("lastAdv: ", lastAdv)
     return advantage, (advantage+values)
-
-
-
-
-# def adPPO(mb_rewards,mb_values, steps,gamma, lam):
-#     mb_returns = np.zeros_like(mb_rewards).astype(np.float32)
-#     mb_advs = np.zeros_like(mb_rewards).astype(np.float32)
-#     lastgaelam = 0
-#     last_values = 9
-#     for t in reversed(range(steps)):
-#
-#         if t == steps - 1:
-#
-#             nextvalues = last_values
-#         else:
-#             nextvalues = mb_values[t+1]
-#         delta = mb_rewards[t] + gamma * nextvalues - mb_values[t]
-#         mb_advs[t] = lastgaelam = delta + gamma* lam * lastgaelam
-#     mb_returns = mb_advs + mb_values
-#     return(mb_advs, mb_returns)
-# # # print(advantageDR(np.asarray([2,5,4,5,2,3,1,6],dtype=np.float32).reshape((-1,1)),0.9,4))
-# print(advantageEST(np.array([2,5,4,5,2,3,1,6]).reshape(-1,1),np.array([4,3,7,4.3,9,1,0.5,6]).reshape(-1,1),9,0.9,1))
-# print(adPPO(np.array([2,5,4,5,2,3,1,6]).reshape(-1,1),np.array([4,3,7,4.3,9,1,0.5,6]).reshape(-1,1),8,0.9,1))
