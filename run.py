@@ -55,7 +55,7 @@ assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
 #create environement
 env = gym.make(args.env)
 # env.seed(0)
-env = gym.wrappers.Monitor(env, args.resultsPath, force=True, video_callable=lambda episode_id: episode_id%50==0)
+# env = gym.wrappers.Monitor(env, args.resultsPath, force=True, video_callable=lambda episode_id: episode_id%50==0)
 env = adjustFrame(env)
 env = stackFrames(env, args.stacks)
 ob_shape = list(env.observation_space.shape)
@@ -129,7 +129,7 @@ for timestep in range(args.numSteps):
         obs = env.reset()
         obs= obs.reshape([1]+ob_shape)
         latestReward = float(sum(EpisodeRewards))
-        writeResults("{}, {}, {}".format(latestReward, timestep-tprev, tnow-tStart),'1')
+        writeResults("{}, {}, {}".format(latestReward, timestep-tprev, tnow-tStart),filename)
         tprev = timestep
         EpisodeRewards = []
         if len(allEpR)==0:
@@ -156,7 +156,7 @@ Agent.saveNetwork(os.path.join(args.resultsPath,"finalModel","final.ckpt"))
 
 
 sess.close()
-env.env.env.env.close()
+env.env.env.close()
 plt.plot(np.arange(len(allEpR)),allEpR)
 plt.xlabel('Episode')
 plt.ylabel('Moving average')
