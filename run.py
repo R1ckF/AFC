@@ -26,7 +26,7 @@ def parse_args():
         parser.add_argument('--gamma', default=0.99, help='discounted reward factor')
         parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
         parser.add_argument('--epochs', default = 4, type=int, help= 'Number of epochs for training networks')
-        parser.add_argument('--learningRate', default = 3e-4)# lambda f: f * 2.5e-4, help= 'Starting value for the learning rate for training networks.')
+        parser.add_argument('--learningRate', default = lambda f: f * 2.5e-4, help= 'Starting value for the learning rate for training networks.')
         parser.add_argument('--liverender', default = False, action='store_true')
         parser.add_argument('--nMiniBatch', default = 4, type=int, help = 'number of minibatches per trainingepoch')
         parser.add_argument('--loadPath', default = None, help = 'Load existing model')
@@ -117,7 +117,7 @@ for timestep in range(args.numSteps):
 
     if (timestep+1) % args.nsteps == 0:
 
-        lr = args.learningRate#1-timestep/args.numSteps)
+        lr = args.learningRate(1-timestep/args.numSteps)
         Dones, Rewards, Observations, Actions, Values, LogProb = np.asarray(Dones), np.asarray(Rewards,dtype=np.float32),  np.asarray(Observations,dtype=np.float32).reshape([args.nsteps]+ob_shape),  np.asarray(Actions,dtype=np.int32),  np.asarray(Values,dtype=np.float32),  np.asarray(LogProb,dtype=np.float32)
         value = Agent.getValue(obs)
         Advantage, DiscRewards = advantageEST(Rewards, Values, Dones, value, args.gamma,args.lamda)
