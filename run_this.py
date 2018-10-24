@@ -1,4 +1,24 @@
 from main import *
+import pickle
+import tensorflow as tf
+import os
+
+
+play=False
+nsteps=128
+gamma=0.99
+epsilon=0.2
+epochs=4
+nMiniBatch=4
+learningRate=[lambda f: f * 2.5e-4]
+activation=[tf.nn.tanh, tf.nn.relu]
+networkStyle='copy'
+numNodes=[16,32,64,128]
+numLayers= [1,2,3,4]
+c1=0.5
+seed=[i for i in range(10)]
+
+allEpR, Timesteps, ElapsedTime = main(**runParam)
 
 a = tf.nn.tanh
 print(a)
