@@ -15,26 +15,27 @@ from tensorflow.python import debug as tf_debug
 ## parsing function for easy running
 def parse_args():
         parser = argparse.ArgumentParser(description='Plot results of Simulations')
-        parser.add_argument('--env', default="PongNoFrameskip-v4")
+        parser.add_argument('--env', default="CartPole-v0")#PongNoFrameskip-v4")
         parser.add_argument('--resultsPath', default=None)
         parser.add_argument('--play', action='store_true')
         parser.add_argument('--stacks', default=4, type=int, help = 'Amount of frames to stack')
-        parser.add_argument('--numSteps', default=1000000, type=int)
-        parser.add_argument('--networkOption', default='small', type=str, help = 'Choose small or large or mlp')
-        parser.add_argument('--activation', default=tf.nn.relu)
+        parser.add_argument('--numSteps', default=10000, type=int)
+        parser.add_argument('--networkOption', default='fc', type=str, help = 'Choose small or large or fc')
+        parser.add_argument('--activation', default=tf.nn.tanh)
         parser.add_argument('--nsteps', default=128, type=int, help='number of environment steps between training')
         parser.add_argument('--gamma', default=0.99, help='discounted reward factor')
         parser.add_argument('--epsilon', default=0.2, help='Surrogate clipping factor')
-        parser.add_argument('--epochs', default = 3, type=int, help= 'Number of epochs for training networks')
+        parser.add_argument('--epochs', default = 4, type=int, help= 'Number of epochs for training networks')
         parser.add_argument('--learningRate', default = lambda f: f * 2.5e-4, help= 'Starting value for the learning rate for training networks.')
         parser.add_argument('--liverender', default = False, action='store_true')
         parser.add_argument('--nMiniBatch', default = 4, type=int, help = 'number of minibatches per trainingepoch')
-        parser.add_argument('--loadPath', default = None, help = 'Load existing model')
+        parser.add_argument('--loadPath', default =None)# "results/CartPole-v0_copy_fc/finalModel/final.ckpt", help = 'Load existing model')
         parser.add_argument('--saveInterval', default = 100000, type=int, help = 'save current network to disk')
-        parser.add_argument('--logInterval', default = 10000, type=int, help = 'print Log message')
+        parser.add_argument('--logInterval', default = 1000, type=int, help = 'print Log message')
         parser.add_argument('--cnnStyle', default = 'copy', help = 'copy for 2 CNN and seperate FC layers, shared for shared CNN but seperate FC layers')
         parser.add_argument('--lamda', default = 0.95, help = 'GAE from PPO article')
-        parser.add_argument('--c1', default = 0.5, help = 'VF coefficient')
+        parser.add_argument('--c1', default = 1, help = 'VF coefficient')
+        parser.add_argument('--seed', default = 0, help = 'seed for gym env')
         parser.add_argument('--c2', default = 0.01, help = 'entropy coefficient')
         args = parser.parse_args()
         return args
@@ -49,15 +50,16 @@ for item in ['networkOption','activation','epsilon', 'epochs', 'nMiniBatch','loa
     network_args[item]=args.__dict__[item]
 # network_args['kernel_initializer'] = tf.ones_initializer()
 render = args.liverender
+render=True
 assert ((args.nsteps/args.nMiniBatch) % 1 == 0)
 
 
 #create environement
 env = gym.make(args.env)
-# env.seed(0)
+env.seed(args.seed)
 # env = gym.wrappers.Monitor(env, args.resultsPath, force=True, video_callable=lambda episode_id: episode_id%50==0)
-env = adjustFrame(env)
-env = stackFrames(env, args.stacks)
+# env = adjustFrame(env)
+# env = stackFrames(env, args.stacks)
 ob_shape = list(env.observation_space.shape)
 print(ob_shape)
 
@@ -84,6 +86,8 @@ Values = []
 allEpR = []
 LogProb = []
 Dones = []
+Timesteps = []
+ElapsedTime = []
 filename = "0.results.csv"
 open(os.path.join(args.resultsPath,filename),'w').close()
 
@@ -100,9 +104,6 @@ tStart = time.time()
 tprev = 0
 latestReward = 0
 for timestep in range(args.numSteps):
-    if render:
-        env.render()
-
     Observations.append(obs)
     action, logProb, value = Agent.step(obs)
     Actions.append(action)
@@ -132,10 +133,9 @@ for timestep in range(args.numSteps):
         writeResults("{}, {}, {}".format(latestReward, timestep-tprev, tnow-tStart),filename)
         tprev = timestep
         EpisodeRewards = []
-        if len(allEpR)==0:
-            allEpR.append(latestReward)
-        else:
-            allEpR.append(latestReward*0.1+allEpR[-1]*0.9)
+        allEpR.append(latestReward)
+        Timesteps.append(timestep)
+        ElapsedTime.append(tnow-tStart)
 
     if (timestep+1) % args.saveInterval == 0:
         savePath = os.path.join(args.resultsPath,"checkpoints"+str(timestep)+".ckpt")
@@ -155,9 +155,32 @@ print("fps: ", args.numSteps/(ttime))
 Agent.saveNetwork(os.path.join(args.resultsPath,"finalModel","final.ckpt"))
 
 
+if render:
+    for _ in range(100):
+        obs = env.reset()
+        done = True
+        while done:
+            env.render()
+            time.sleep(0.1)
+            obs= obs.reshape([1]+ob_shape)
+            action, logProb, value = Agent.step(obs)
+            obs, reward, done, info = env.step(action)
+
 sess.close()
-env.env.env.close()
-plt.plot(np.arange(len(allEpR)),allEpR)
-plt.xlabel('Episode')
-plt.ylabel('Moving average')
-plt.show()
+env.close()
+# plt.figure()
+# plt.plot(np.arange(len(allEpR)),allEpR)
+# plt.xlabel('Episode')
+# plt.ylabel('Reward')
+#
+# plt.figure()
+# plt.plot(Timesteps,allEpR)
+# plt.xlabel('Timestep')
+# plt.ylabel('Reward')
+#
+# plt.figure()
+# plt.plot(ElapsedTime,allEpR)
+# plt.xlabel('Time [s]')
+# plt.ylabel('Reward')
+#
+# plt.show()
