@@ -14,9 +14,9 @@ learningRateL=[lambda f: 3.0e-4]
 activationL=[tf.nn.tanh]
 
 play=False
-nstepsL=[64,128,256]
+nstepsL=[64]
 epsilonL=[lambda f: 0.2]
-epochsL=[4]
+epochsL=[1,4,10]
 nMiniBatchL=[1,4,8]
 learningRateL=[lambda f: 2.0e-4]
 activationL=[tf.nn.tanh]
@@ -42,7 +42,7 @@ for nsteps in nstepsL:
                                     for item in ["nsteps", "clippingFactor", "epochs", "nMiniBatch", "learningRate", "activation", "numNodes", "numLayers", "seed"]:
                                         runParam[item]=locals()[item]
                                     allEpR, Timesteps, ElapsedTime = main(**runParam)
-                                    saveVariables(str(numLayers)+"_"+str(numNodes)+"_"+str(seed),[allEpR, Timesteps, ElapsedTime])
+                                    saveVariables(str(nsteps)+"_"+str(epochs)+"_"+str(nMiniBatch)+"_"+str(numLayers)+"_"+str(numNodes)+"_"+str(seed),[allEpR, Timesteps, ElapsedTime])
 
 
 print("Done in %02f seconds" %(time.time()-START))

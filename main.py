@@ -15,7 +15,7 @@ def main(play=False, nsteps=128, clippingFactor=lambda f: 0.2*f, epochs=4, nMini
 
     ##define some constants similar for each training run
     env = "CartPole-v0"
-    saveInterval = 1000
+    saveInterval = 30000
     logInterval = 10000
     numSteps = 20000
     Lamda = 0.95
