@@ -86,10 +86,6 @@ class network:
             network_args['activation'] = None
             self.actionOutput = self.fc(self.networkOutput,self.outputShape, **network_args)
             print("actionspace output: ", self.actionOutput.shape)
-            randomizer = tf.random_uniform(tf.shape(self.actionOutput), dtype=tf.float32) # used to explore the environment
-            print("randomizer: ", randomizer.shape)
-            # self.action = tf.argmax(self.actionOutput- tf.log(-tf.log(randomizer)), axis=1)
-            # self.action = tf.argmax(tf.nn.softmax(self.actionOutput), axis=1)
             self.action = tf.multinomial(self.actionOutput,1)
             print("action shape: ", self.action.shape)
             self.logProb = self.logP(self.action)
@@ -117,7 +113,6 @@ class agent:
     env: gym environments
     sess: tensorflow Session
     networkoption: which type of network to created, for this research only fc is used
-    epsilon: clipping factor 0.2 is used in the article
     epochs: number of training epochs
     nMinibatch: amount of minibatches that are created from each training set
     loadPath: can be used to load a previously created tensorflow model
@@ -126,12 +121,11 @@ class agent:
 
     """
 
-    def __init__(self, env, sess, networkOption='fc',epsilon = 0.2, epochs = 4, nMiniBatch = 2, loadPath = None,
+    def __init__(self, env, sess, networkOption='fc', epochs = 4, nMiniBatch = 2, loadPath = None,
                     networkStyle = 'copy', c1=0.5, **network_args):
         self.env = env
         self.sess = sess
         self.networkOption = networkOption
-        self.epsilon = epsilon
         self.epoch = epochs
         self.nMiniBatch = nMiniBatch
         self.loadPath  = loadPath
@@ -145,7 +139,7 @@ class agent:
         self.disRewardsPH = tf.placeholder(tf.float32, shape = [None], name = 'DiscountedRewards')
         self.oldValuePredPH = tf.placeholder(tf.float32, shape = [None], name = 'oldValuePred')
         self.learningRatePH = tf.placeholder(tf.float32, shape = [], name = 'LearningRate')
-
+        self.epsilonPH = tf.placeholder(tf.float32, shape = [], name = 'ClippingFactor')
         if networkStyle == 'copy': ## build netwok using the network class, the scopes what network is created
             with tf.variable_scope('actor'):
                 network_args['trainable']=True
@@ -198,7 +192,7 @@ class agent:
             print("ratio: ", ratio.shape)
             policyLoss= ratio * self.advantagePH # calculate unclipped policy loss
             print("Policylos: ", policyLoss.shape)
-            clippedPolicyLoss= self.advantagePH * tf.clip_by_value(ratio,(1-self.epsilon),(1+self.epsilon)) # calculate clipped policy loss
+            clippedPolicyLoss= self.advantagePH * tf.clip_by_value(ratio,(1-self.epsilonPH),(1+self.epsilonPH)) # calculate clipped policy loss
             print("clippedPolicyLoss: ", clippedPolicyLoss.shape)
             min = tf.minimum(policyLoss, clippedPolicyLoss) # find the minimum of the clipped and unclipped loss
             print("minShape: ", min.shape)
@@ -233,7 +227,7 @@ class agent:
         return  action.squeeze(), logProb.squeeze(), value.squeeze()
 
 
-    def trainNetwork(self, observations, actions, disRewards, values, actionProbOld, advantage,lr):
+    def trainNetwork(self, observations, actions, disRewards, values, actionProbOld, advantage,lr, epsilon):
         """
         Functions that first creates shuffled minibatches of the data.
         Next it trains the network on those batches for a given amount of epochs
@@ -256,7 +250,7 @@ class agent:
                 disRewardsB = disRewards[ind]
                 valuesB = values[ind]
                 advantageB = (advantageB - advantageB.mean()) / (advantageB.std() + 1e-8) # normalize the advantage function for faster convergence
-                feedDict = {self.observationPH: observationsB, self.oldValuePredPH:valuesB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB, self.learningRatePH: lr}
+                feedDict = {self.observationPH: observationsB, self.oldValuePredPH:valuesB, self.actionsPH: actionsB, self.actionsProbOldPH: actionProbOldB, self.advantagePH: advantageB, self.disRewardsPH: disRewardsB, self.learningRatePH: lr, self.epsilonPH: epsilon}
                 ## feedDict is used to feed the training data to the placeholders created when the agent is initialized
                 pLoss, vLoss,  _ = self.sess.run([self.pLoss, self.vLoss, self.train], feedDict)
 

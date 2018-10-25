@@ -2,26 +2,54 @@ from main import *
 import pickle
 import tensorflow as tf
 import os
+import time
 
+START = time.time()
+play=False
+nstepsL=[64,128, 256, 512]
+epsilonL=[lambda f: 0.1, lambda f: 0.2, lambda f: 0.3]
+epochsL=[1,4,8,16]
+nMiniBatchL=[1,2,4,8]
+learningRateL=[lambda f: 3.0e-4]
+activationL=[tf.nn.tanh]
 
 play=False
-nsteps=128
-gamma=0.99
-epsilon=0.2
-epochs=4
-nMiniBatch=4
-learningRate=[lambda f: f * 2.5e-4]
-activation=[tf.nn.tanh, tf.nn.relu]
-networkStyle='copy'
-numNodes=[16,32,64,128]
-numLayers= [1,2,3,4]
-c1=0.5
-seed=[i for i in range(10)]
+nstepsL=[64,128,256]
+epsilonL=[lambda f: 0.2]
+epochsL=[4]
+nMiniBatchL=[1,4,8]
+learningRateL=[lambda f: 2.0e-4]
+activationL=[tf.nn.tanh]
 
-allEpR, Timesteps, ElapsedTime = main(**runParam)
+numNodesL=[16,32,64,128]
+numLayersL= [1,2,3,4]
+seedL=[i for i in range(10)]
 
-a = tf.nn.tanh
-print(a)
+def saveVariables(filename, variables):
+    with open(os.path.join("results",filename), 'wb') as f:
+        pickle.dump(variables, f)
+
+for nsteps in nstepsL:
+    for clippingFactor in epsilonL:
+        for epochs in epochsL:
+            for nMiniBatch in nMiniBatchL:
+                for learningRate in learningRateL:
+                    for activation in activationL:
+                        for numNodes in numNodesL:
+                            for numLayers in numLayersL:
+                                for seed in seedL:
+                                    runParam={}
+                                    for item in ["nsteps", "clippingFactor", "epochs", "nMiniBatch", "learningRate", "activation", "numNodes", "numLayers", "seed"]:
+                                        runParam[item]=locals()[item]
+                                    allEpR, Timesteps, ElapsedTime = main(**runParam)
+                                    saveVariables(str(numLayers)+"_"+str(numNodes)+"_"+str(seed),[allEpR, Timesteps, ElapsedTime])
+
+
+print("Done in %02f seconds" %(time.time()-START))
+# allEpR, Timesteps, ElapsedTime = main(**runParam)
+
+# a = tf.nn.tanh
+# print(i*2/60)
 
     # def parse_args():
     #         parser = argparse.ArgumentParser(description='Plot results of Simulations')

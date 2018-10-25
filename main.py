@@ -7,19 +7,27 @@ from networkClassFC import *
 import time
 import os
 
+"""
+Main function used for running each training run
+Takes the variable parameters that are testes as inputs
+"""
+def main(play=False, nsteps=128, clippingFactor=lambda f: 0.2*f, epochs=4, nMiniBatch=4, learningRate=lambda f: f * 2.0e-4, activation=tf.nn.tanh, numNodes=64, numLayers=2, seed=0):
 
-def main(play=False, nsteps=128, gamma=0.99, epsilon=0.2, epochs=4, nMiniBatch=4, learningRate=lambda f: f * 2.5e-4, activation=tf.nn.tanh, networkStyle='copy', numNodes=64, numLayers=2, c1=0.5, seed=0):
+    ##define some constants similar for each training run
     env = "CartPole-v0"
     saveInterval = 1000
-    logInterval = 1000
-    numSteps = 10000
+    logInterval = 10000
+    numSteps = 20000
     Lamda = 0.95
+    gamma = 0.99
+    networkStyle='copy'
+    c1 = 0.5
     loadPath = None
 
-    resultsPath = os.path.join("results",env+"_"+networkStyle)
+    resultsPath = os.path.join("results",str(numNodes)+"_"+str(numLayers))
 
     network_args = {'networkOption': 'fc'}
-    for item in ['activation','epsilon', 'epochs', 'nMiniBatch','loadPath','networkStyle', 'c1', 'numNodes', 'numLayers']:
+    for item in ['activation', 'epochs', 'nMiniBatch','loadPath','networkStyle', 'c1', 'numNodes', 'numLayers']:
         network_args[item]=locals()[item]
     print(network_args)
     ## ensure values match to avoid errors later on
@@ -28,7 +36,6 @@ def main(play=False, nsteps=128, gamma=0.99, epsilon=0.2, epochs=4, nMiniBatch=4
 
     #create environement
     env = gym.make(env)
-    # env = gym.wrappers.Monitor(env, resultsPath, force=True, video_callable=lambda episode_id: episode_id%40==0)
     env.seed(seed)
     ob_shape = list(env.observation_space.shape)
     print(ob_shape)
@@ -39,7 +46,7 @@ def main(play=False, nsteps=128, gamma=0.99, epsilon=0.2, epochs=4, nMiniBatch=4
     Agent = agent(env, sess, **network_args)
 
     ## create tensorboard file
-    writer = tf.summary.FileWriter(os.path.join(resultsPath,"tensorboard"), sess.graph)
+    writer = tf.summary.FileWriter(os.path.join(resultsPath,"tensorboard",str(seed)), sess.graph)
     writer.close()
 
     ##reset enviroment
@@ -81,10 +88,11 @@ def main(play=False, nsteps=128, gamma=0.99, epsilon=0.2, epochs=4, nMiniBatch=4
         if (timestep+1) % nsteps == 0:
 
             lr = learningRate(1-timestep/numSteps) # calc current learning rate
+            epsilon = clippingFactor(1-timestep/numSteps) #calc current epsilon
             Dones, Rewards, Observations, Actions, Values, LogProb = np.asarray(Dones), np.asarray(Rewards,dtype=np.float32),  np.asarray(Observations,dtype=np.float32).reshape([nsteps]+ob_shape),  np.asarray(Actions,dtype=np.int32),  np.asarray(Values,dtype=np.float32),  np.asarray(LogProb,dtype=np.float32)
             value = Agent.getValue(obs) # get value from latest observation
             Advantage, DiscRewards = advantageEST(Rewards, Values, Dones, value, gamma,Lamda) #calculate advantange and discounted rewards according to the method in the article
-            pLoss, vLoss = Agent.trainNetwork(Observations, Actions, DiscRewards, Values, LogProb, Advantage, lr) # train network
+            pLoss, vLoss = Agent.trainNetwork(Observations, Actions, DiscRewards, Values, LogProb, Advantage, lr, epsilon) # train network
             Rewards, Actions, Observations, Values, LogProb, Dones = [],[],[],[],[],[] # create new lists for next batch
 
         if done: # current episode is finished and needs reset. Also used as a checkpoint for saving intermediate results
