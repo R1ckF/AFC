@@ -14,7 +14,7 @@ learningRateL=[lambda f: 3.0e-4]
 activationL=[tf.nn.tanh]
 
 play=False
-nstepsL=[64]
+nstepsL=[256]
 epsilonL=[lambda f: 0.2]
 epochsL=[1,4,10]
 nMiniBatchL=[1,4,8]
