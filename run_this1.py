@@ -38,11 +38,16 @@ for nsteps in nstepsL:
                         for numNodes in numNodesL:
                             for numLayers in numLayersL:
                                 for seed in seedL:
-                                    runParam={}
-                                    for item in ["nsteps", "clippingFactor", "epochs", "nMiniBatch", "learningRate", "activation", "numNodes", "numLayers", "seed"]:
-                                        runParam[item]=locals()[item]
-                                    allEpR, Timesteps, ElapsedTime = main(**runParam)
-                                    saveVariables(str(nsteps)+"_"+str(epochs)+"_"+str(nMiniBatch)+"_"+str(numLayers)+"_"+str(numNodes)+"_"+str(seed),[allEpR, Timesteps, ElapsedTime])
+                                    filen = str(nsteps)+"_"+str(epochs)+"_"+str(nMiniBatch)+"_"+str(numLayers)+"_"+str(numNodes)+"_"+str(seed)
+                                    if os.path.isfile(os.path.join("results",filen)):
+                                        print("File %s found and skipped." %filen)
+                                    else:
+                                        runParam={}
+                                        for item in ["nsteps", "clippingFactor", "epochs", "nMiniBatch", "learningRate", "activation", "numNodes", "numLayers", "seed"]:
+                                            runParam[item]=locals()[item]
+                                        allEpR, Timesteps, ElapsedTime = main(**runParam)
+                                        saveVariables(filen,[allEpR, Timesteps, ElapsedTime])
+
 
 
 print("Done in %02f seconds" %(time.time()-START))
